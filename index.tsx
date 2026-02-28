@@ -101,7 +101,7 @@ interface DialogueLine {
 
 // --- Constants ---
 
-const FIXED_BASE_URL = 'https://www.jiguangmanying.xyz';
+const FIXED_BASE_URL = 'https://api.jiguangmanying.xyz';
 const INITIAL_CHAT_MESSAGE_TEXT = '我可以帮你解答问题、分析文档或处理多媒体内容。支持上传: 文本, 图片, 音频, 视频, PDF以及更多格式。';
 
 const ASPECT_RATIO_LABELS: Record<string, string> = {
@@ -3095,7 +3095,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                 <button onClick={() => setActiveModal('links')} title="联系客服" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
                     <Headset className="w-5 h-5 md:w-6 md:h-6"/>
                 </button>
-                <a href="https://www.jiguangmanying.xyz/console/log" target="_blank" title="使用日志" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
+                <a href="https://api.jiguangmanying.xyz/console/log" target="_blank" title="使用日志" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
                   <History className="w-5 h-5 md:w-6 md:h-6" />
                 </a>
           </div>
@@ -3146,7 +3146,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                         </div>
                         <div className="space-y-1">
                             <h3 className="font-bold text-lg text-brand-red uppercase">重要提示 / IMPORTANT</h3>
-                            <p className="text-sm text-slate-700 font-medium">首次使用前，请务必在设置中配置您的 <a href="https://www.jiguangmanying.xyz/console/token" target="_blank" className="bg-brand-yellow px-1 border border-black text-xs hover:opacity-80 transition-opacity">API令牌</a>，否则无法生成内容。</p>
+                            <p className="text-sm text-slate-700 font-medium">首次使用前，请务必在设置中配置您的 <a href="https://api.jiguangmanying.xyz/console/token" target="_blank" className="bg-brand-yellow px-1 border border-black text-xs hover:opacity-80 transition-opacity">API令牌</a>，否则无法生成内容。</p>
                         </div>
                     </div>
 
@@ -3985,7 +3985,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                 <button onClick={() => setActiveModal('links')} title="联系客服" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
                     <Headset className="w-5 h-5 md:w-6 md:h-6"/>
                 </button>
-                <a href="https://www.jiguangmanying.xyz/console/log" target="_blank" title="使用日志" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
+                <a href="https://api.jiguangmanying.xyz/console/log" target="_blank" title="使用日志" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
                   <History className="w-5 h-5 md:w-6 md:h-6" />
                 </a>
           </div>
@@ -4054,7 +4054,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                         </div>
                         {asset.type === 'video' && (
                             <a 
-                                href="https://www.jiguangmanying.xyz/console/task" 
+                                href="https://api.jiguangmanying.xyz/console/task" 
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
@@ -4172,7 +4172,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                 </div>
                 <input 
                     type="text" 
-                    value="https://www.jiguangmanying.xyz" 
+                    value="https://api.jiguangmanying.xyz" 
                     readOnly 
                     className="w-full h-14 px-4 border border-black bg-slate-50 text-slate-600 text-lg font-normal font-mono outline-none" 
                 />
@@ -4266,7 +4266,7 @@ RoleName必须严格对应用户输入中的角色名。`;
             <div className="p-8 space-y-6">
               {[
                 { n: '1', t: '注册与令牌', d: <>
-                  前往主站 <a href="https://www.jiguangmanying.xyz" target="_blank" className="text-blue-600 font-medium underline italic">www.jiguangmanying.xyz</a> 注册并创建您的专属令牌。
+                  前往主站 <a href="https://api.jiguangmanying.xyz" target="_blank" className="text-blue-600 font-medium underline italic">api.jiguangmanying.xyz</a> 注册并创建您的专属令牌。
                   <div className="mt-2 text-brand-red font-normal text-sm">API令牌分组：限时特价→default→优质gemini→逆向→sora-vip</div>
                 </> },
                 { n: '2', t: '配置使用', d: '点击本站上方设置 按钮，输入令牌即可开始创作。' },
