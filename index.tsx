@@ -142,6 +142,15 @@ const MODELS: ModelDefinition[] = [
     supportedResolutions: ['AUTO']
   },
   { 
+    id: 'gemini-3.1-flash-image-preview', 
+    name: 'Gemini-3.1-Flash-Image', 
+    cost: 'Flash-3.1',
+    features: ['hd'],
+    maxImages: 8,
+    supportedAspectRatios: EXTENDED_RATIOS,
+    supportedResolutions: ['512px', '1K', '2K', '4K']
+  },
+  { 
     id: 'gemini-3-pro-image-preview', 
     name: 'Gemini-3-Pro-Image', 
     cost: 'Pro',
@@ -1015,6 +1024,7 @@ const PRICE_DATA = [
     category: '图片创作',
     items: [
       { m: 'Gemini-2.5-Flash-Image', p: '0.07元/张' },
+      { m: 'Gemini-3.1-Flash-Image', p: '1K/2K 0.116元/张，4K 0.207元/张' },
       { m: 'Gemini-3-Pro-Image', p: '1K/2K 0.16元/张，4K 0.29元/张' },
       { m: 'Kling Image O1', p: '0.27元/张' },
       { m: 'GPT Image 1', p: '0.07元/张' },
