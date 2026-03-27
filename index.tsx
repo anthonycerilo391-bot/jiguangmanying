@@ -199,14 +199,14 @@ const MODELS: ModelDefinition[] = [
 
 const CHAT_MODELS = [
     { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash' },
-    { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro' },
+    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro' },
     { id: 'gpt-5-mini', name: 'GPT 5 Mini' },
 ];
 
 const MODEL_CAPABILITIES: Record<string, { image: boolean; audio: boolean; video: boolean; pdf: boolean; any?: boolean }> = {
     'gemini-2.5-flash': { image: true, audio: true, video: true, pdf: true },
     'gemini-3-flash-preview': { image: true, audio: true, video: true, pdf: true },
-    'gemini-3-pro-preview': { image: true, audio: true, video: true, pdf: true, any: true },
+    'gemini-3.1-pro-preview': { image: true, audio: true, video: true, pdf: true, any: true },
     'gpt-5.2': { image: true, audio: true, video: true, pdf: true },
     'gpt-5-mini': { image: true, audio: false, video: false, pdf: true },
     'grok-4.1': { image: true, audio: false, video: false, pdf: true },
@@ -674,8 +674,8 @@ const ChatView = ({
             let targetModelId = modelId;
 
             // Handle Thinking Variant for Gemini 3 Pro
-            if (modelId === 'gemini-3-pro-preview' && isThinking) {
-                targetModelId = 'gemini-3-pro-preview-thinking';
+            if (modelId === 'gemini-3.1-pro-preview' && isThinking) {
+                targetModelId = modelId + '-thinking';
             }
 
             // OpenAI Compatible format for all chat models (including Gemini via proxy)
@@ -945,7 +945,7 @@ const ChatView = ({
                              <button onClick={handleClearInput} className="text-gray-600 hover:bg-gray-200 rounded-full p-2 transition-colors" title="清空输入"><Brush className="w-5 h-5"/></button>
                              <button onClick={() => setActiveModal('edit-prompt')} className="text-gray-600 hover:bg-gray-200 rounded-full p-2 transition-colors" title="展开"><Maximize2 className="w-5 h-5"/></button>
                              <button onClick={handleClearContext} className="text-gray-600 hover:bg-gray-200 rounded-full p-2 transition-colors" title="清除上下文"><Eraser className="w-5 h-5"/></button>
-                             {modelId === 'gemini-3-pro-preview' && (
+                             {modelId === 'gemini-3.1-pro-preview' && (
                                 <button
                                    onClick={() => setIsThinking(!isThinking)}
                                    className={`rounded-full p-2 transition-colors ${isThinking ? 'bg-indigo-100 text-indigo-600' : 'text-gray-600 hover:bg-gray-200'}`}
@@ -1016,7 +1016,7 @@ const PRICE_DATA = [
     category: 'AI对话',
     items: [
       { m: 'Gemini-3-Flash', p: '提示0.34元/ 1M tokens，补全1.44元/ 1M tokens' },
-      { m: 'Gemini-3-Pro-Preview', p: '提示1.37元/ 1M tokens，补全8.23元/ 1M tokens' },
+      { m: 'Gemini-3.1-Pro-Preview', p: '提示1.37元/ 1M tokens，补全8.23元/ 1M tokens' },
       { m: 'GPT-5-Mini', p: '提示0.17元/ 1M tokens，补全1.37元/ 1M tokens' }
     ]
   },
