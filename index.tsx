@@ -4244,7 +4244,7 @@ RoleName必须严格对应用户输入中的角色名。`;
       {activeModal === 'links' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-[500px] bg-white border-2 border-black brutalist-shadow animate-in zoom-in-95 relative">
-            <ModalHeader title="联系客服 /SUPPORT" icon={Headset} onClose={() => setActiveModal(null)} />
+            <ModalHeader title="联系客服 / WECHAT GROUP" icon={Headset} onClose={() => setActiveModal(null)} />
             <div className="p-8 space-y-6">
                <div className="bg-brand-cream border-2 border-black p-6 flex flex-col items-center gap-4 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
                   <div className="absolute top-0 right-0 bg-brand-yellow px-3 py-1 border-l border-b border-black font-normal text-[10px] uppercase">Online</div>
@@ -4252,16 +4252,16 @@ RoleName必须严格对应用户输入中的角色名。`;
                       <Headset className="w-8 h-8" />
                   </div>
                   <div className="text-center space-y-2 w-full">
-                      <h3 className="font-bold text-sm uppercase italic text-slate-500 tracking-widest">WeChat Support</h3>
+                      <h3 className="font-bold text-sm uppercase italic text-slate-500 tracking-widest">WeChat QR Code</h3>
                       <div className="flex w-full items-stretch">
                           <div className="bg-brand-green text-black px-4 flex items-center justify-center border border-black border-r-0 font-bold text-xl whitespace-nowrap tracking-tighter">
-                            微信客服
+                            联系客服
                           </div>
-                          <div className="bg-white border border-black px-4 py-3 text-2xl font-bold uppercase tracking-wider select-all cursor-text hover:bg-slate-50 transition-colors flex-1 text-center">
-                              piananyiyu789
+                          <div className="bg-white border border-black px-4 py-3 flex-1 flex items-center justify-center hover:bg-slate-50 transition-colors">
+                              <img src="https://lsky.zhongzhuan.chat/i/2026/03/27/69c6348142649.png" alt="WeChat QR Code" className="max-h-48 w-auto object-contain" referrerPolicy="no-referrer" />
                           </div>
                       </div>
-                      <p className="text-[10px] font-normal text-slate-400 uppercase italic">Click text to copy / Long press</p>
+                      <p className="text-[10px] font-normal text-slate-400 uppercase italic text-center">Scan QR Code / Long press</p>
                   </div>
                </div>
             </div>
