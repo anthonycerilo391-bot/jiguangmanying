@@ -160,6 +160,15 @@ const MODELS: ModelDefinition[] = [
     supportedResolutions: ['1K', '2K', '4K']
   },
   {
+    id: 'gpt-image-2-all',
+    name: 'GPT Image 2',
+    cost: 'GPT-2',
+    features: ['hd', 'high-quality'],
+    maxImages: 4,
+    supportedAspectRatios: EXTENDED_RATIOS,
+    supportedResolutions: ['2K']
+  },
+  {
     id: 'kling-image-o1',
     name: 'Kling Image O1',
     cost: 'Kling',
@@ -1026,6 +1035,7 @@ const PRICE_DATA = [
       { m: 'Gemini-2.5-Flash-Image', p: '0.07元/张' },
       { m: 'Gemini-3.1-Flash-Image', p: '1K/2K 0.116元/张，4K 0.207元/张' },
       { m: 'Gemini-3-Pro-Image', p: '1K/2K 0.16元/张，4K 0.29元/张' },
+      { m: 'GPT Image 2', p: '2K 0.06元/张' },
       { m: 'Kling Image O1', p: '0.27元/张' },
       { m: 'GPT Image 1', p: '0.07元/张' },
       { m: 'GPT Image 1.5', p: '0.07元/张' },
