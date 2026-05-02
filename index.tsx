@@ -4845,7 +4845,7 @@ const App = () => {
                         </button>
                         <div className="overflow-hidden whitespace-nowrap w-full relative">
                             <div className="inline-block animate-marquee text-black text-sm font-normal">
-                                公告：1、本应用不储存用户资产，请及时下载；2、生成失败请重新生成，扣费自动返还；3、如遇连续失败，请暂时切换分组或者切换其它模型使用；4、欢迎联系客服提供优化建议。
+                                {APP_CONFIG.ANNOUNCEMENT}
                             </div>
                         </div>
                     </>
