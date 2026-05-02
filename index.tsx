@@ -1,19 +1,29 @@
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
 import { createRoot } from 'react-dom/client';
+import { APP_CONFIG } from './src/app_config';
+import { formatPriceString } from './pricing';
 import { 
-  Settings2, Sparkles, Video, 
+  Settings, Sparkles, Video, 
   Loader2, Download,
   Bot, X, AlertCircle, Plus,
-  RefreshCw, Edit, Maximize2, Check,
-  Square, CheckSquare, Megaphone, ExternalLink,
+  RefreshCw, Edit, Edit3, Maximize2, Check,
+  Square, CheckSquare, ExternalLink,
   History, Copy, ClipboardCheck, Trash2,
-  AlertTriangle, Palette, Bookmark, Wand2, GripVertical, Save,
-  Image as ImageIcon, BookOpen, Headset,
+  Palette, Bookmark, Wand2, GripVertical, Save, Play, Pause,
+  Image as ImageIcon, BookOpen, MessageCircleQuestion, Shield, BadgeDollarSign,
   Paperclip, FileText, Music, Mic, Volume2,
-  User, VolumeX, AudioLines, MessageSquare,
+  User, VolumeX, MessageSquare,
   ChevronLeft, ChevronRight, MessageSquarePlus, Zap, Eraser, ArrowUp,
-  ChevronDown, Brush, Brain, Monitor, ArrowDown, FolderOpen, Frown,
-  MegaphoneOff, Link, Globe
+  ChevronDown, Brush, Brain, Monitor, FolderOpen, Frown,
+  Link, Globe, Bell, Eye, EyeOff
 } from 'lucide-react';
 
 // --- Types & Declarations ---
@@ -25,8 +35,8 @@ declare var process: {
   }
 };
 
-type ModalType = 'settings' | 'links' | 'usage' | 'price' | 'support' | 'edit-prompt' | 'styles' | 'library' | 'save-prompt-confirm' | 'video-remix' | 'announcement' | null;
-type MainCategory = 'image' | 'video' | 'proxy' | 'audio' | 'chat' | 'announcement' | 'resources';
+type ModalType = 'settings' | 'links' | 'usage' | 'price' | 'support' | 'edit-prompt' | 'edit-line' | 'styles' | 'library' | 'save-prompt-confirm' | 'video-remix' | 'fallback-settings' | null;
+type MainCategory = 'image' | 'video' | 'proxy' | 'audio' | 'chat' | 'resources';
 
 interface AppConfig {
   baseUrl: string;
@@ -74,8 +84,10 @@ interface ModelDefinition {
   cost: string;
   features: string[];
   maxImages: number;
+  maxReferenceImages?: number;
   supportedAspectRatios: string[];
   supportedResolutions: string[];
+  supportedQualities?: string[];
 }
 
 interface SavedPrompt {
@@ -88,7 +100,8 @@ interface SavedPrompt {
 interface ChatMessage {
     role: 'user' | 'model' | 'system';
     text: string;
-    files?: { type: string; data: string; file?: File }[];
+    displayText?: string;
+    files?: { type: string; data: string; file?: File; extractedText?: string }[];
     error?: boolean;
     isDivider?: boolean;
 }
@@ -101,7 +114,7 @@ interface DialogueLine {
 
 // --- Constants ---
 
-const FIXED_BASE_URL = 'https://api.jiguangmanying.xyz';
+const FIXED_BASE_URL = APP_CONFIG.BASE_URL;
 const INITIAL_CHAT_MESSAGE_TEXT = '我可以帮你解答问题、分析文档或处理多媒体内容。支持上传: 文本, 图片, 音频, 视频, PDF以及更多格式。';
 
 const ASPECT_RATIO_LABELS: Record<string, string> = {
@@ -114,6 +127,8 @@ const ASPECT_RATIO_LABELS: Record<string, string> = {
   '5:4': '5:4 (装饰画)',
   '9:16': '9:16 (短视频)',
   '16:9': '16:9 (电脑壁纸)',
+  '2:1': '2:1 (全景)',
+  '1:2': '1:2 (对折)',
   '21:9': '21:9 (宽屏电影)',
   '9:21': '9:21 (垂直全景)',
   '32:9': '32:9 (超级宽屏)',
@@ -121,15 +136,37 @@ const ASPECT_RATIO_LABELS: Record<string, string> = {
   '3:1': '3:1 (长横图)',
   '1:4': '1:4 (极长图)',
   '4:1': '4:1 (长横幅)',
+  '1:8': '1:8 (超长图)',
+  '8:1': '8:1 (超横幅)',
   '原图比例': '原图比例 (Source)',
   'Default': '默认比例 (Default)'
 };
 
 const EXTENDED_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
-const GPT1_RATIOS = ['1:1', '2:3', '3:2'];
+const GEMINI_3_1_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9', '1:4', '4:1', '1:8', '8:1'];
 const GPT15_RATIOS = ['1:1', '2:3', '3:2'];
-const GROK_RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9'];
+const GPT2_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'];
+
+const GPT2_SIZES: Record<string, Record<string, string>> = {
+  "1:1": { "1K": "1024x1024", "2K": "2048x2048" },
+  "16:9": { "1K": "1536x864", "2K": "2048x1152", "4K": "3840x2160" },
+  "9:16": { "1K": "864x1536", "2K": "1152x2048", "4K": "2160x3840" },
+  "4:3": { "1K": "1024x768", "2K": "2048x1536" },
+  "3:4": { "1K": "768x1024", "2K": "1536x2048" },
+  "3:2": { "1K": "1536x1024", "2K": "2048x1360" },
+  "2:3": { "1K": "1024x1536", "2K": "1360x2048" },
+  "5:4": { "1K": "1280x1024", "2K": "2560x2048" },
+  "4:5": { "1K": "1024x1280", "2K": "2048x2560" },
+  "2:1": { "1K": "2048x1024", "2K": "2688x1344", "4K": "3840x1920" },
+  "1:2": { "1K": "1024x2048", "2K": "1344x2688", "4K": "1920x3840" },
+  "21:9": { "1K": "2016x864", "2K": "2688x1152", "4K": "3840x1648" },
+  "9:21": { "1K": "864x2016", "2K": "1152x2688", "4K": "1648x3840" }
+};
+
+const GROK_RATIOS = ['1:1', '2:3', '3:2', '9:16', '16:9'];
+const GROK_IMAGINE_RATIOS = ['1:1', '4:3', '9:16', '16:9'];
 const KLING_O1_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'];
+const DOUBAO_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'];
 
 const MODELS: ModelDefinition[] = [
   { 
@@ -144,10 +181,10 @@ const MODELS: ModelDefinition[] = [
   { 
     id: 'gemini-3.1-flash-image-preview', 
     name: 'Gemini-3.1-Flash-Image', 
-    cost: 'Flash-3.1',
-    features: ['hd'],
-    maxImages: 8,
-    supportedAspectRatios: EXTENDED_RATIOS,
+    cost: 'Flash 3.1',
+    features: ['fast', 'preview'],
+    maxImages: 4,
+    supportedAspectRatios: GEMINI_3_1_RATIOS,
     supportedResolutions: ['512px', '1K', '2K', '4K']
   },
   { 
@@ -160,15 +197,6 @@ const MODELS: ModelDefinition[] = [
     supportedResolutions: ['1K', '2K', '4K']
   },
   {
-    id: 'gpt-image-2-all',
-    name: 'GPT Image 2',
-    cost: 'GPT-2',
-    features: ['hd', 'high-quality'],
-    maxImages: 4,
-    supportedAspectRatios: EXTENDED_RATIOS,
-    supportedResolutions: ['AUTO']
-  },
-  {
     id: 'kling-image-o1',
     name: 'Kling Image O1',
     cost: 'Kling',
@@ -176,15 +204,6 @@ const MODELS: ModelDefinition[] = [
     maxImages: 4,
     supportedAspectRatios: KLING_O1_RATIOS,
     supportedResolutions: ['1K', '2K']
-  },
-  {
-    id: 'gpt-image-1-all',
-    name: 'GPT Image 1',
-    cost: 'GPT',
-    features: ['stable'],
-    maxImages: 4,
-    supportedAspectRatios: GPT1_RATIOS,
-    supportedResolutions: ['AUTO']
   },
   {
     id: 'gpt-image-1.5-all',
@@ -196,6 +215,25 @@ const MODELS: ModelDefinition[] = [
     supportedResolutions: ['AUTO']
   },
   {
+    id: 'gpt-image-2',
+    name: 'GPT IMAGE 2(推荐使用)',
+    cost: 'GPT-2-NEW',
+    features: ['detail', 'high-quality'],
+    maxImages: 4,
+    supportedAspectRatios: GPT2_RATIOS,
+    supportedResolutions: ['1K', '2K', '4K'],
+    supportedQualities: ['auto', 'low', 'medium', 'high']
+  },
+  {
+    id: 'gpt-image-2-all',
+    name: 'GPT Image 2 ALL',
+    cost: 'GPT-2',
+    features: ['heavy', 'detail'],
+    maxImages: 4,
+    supportedAspectRatios: GPT2_RATIOS,
+    supportedResolutions: ['1K', '2K', '4K']
+  },
+  {
     id: 'grok-4-image',
     name: 'Grok 4 Image',
     cost: 'Grok',
@@ -203,55 +241,53 @@ const MODELS: ModelDefinition[] = [
     maxImages: 1,
     supportedAspectRatios: GROK_RATIOS,
     supportedResolutions: ['AUTO']
+  },
+  {
+    id: 'grok-imagine-image',
+    name: 'Grok Imagine Image',
+    cost: 'Grok',
+    features: ['creative'],
+    maxImages: 1,
+    maxReferenceImages: 1,
+    supportedAspectRatios: GROK_IMAGINE_RATIOS,
+    supportedResolutions: ['AUTO']
+  },
+  {
+    id: 'doubao-seedream-5-0-260128',
+    name: 'Doubao Seedream 5.0',
+    cost: 'Doubao',
+    features: ['high-quality'],
+    maxImages: 1,
+    maxReferenceImages: 8,
+    supportedAspectRatios: DOUBAO_RATIOS,
+    supportedResolutions: ['2K', '3K']
   }
 ];
 
 const CHAT_MODELS = [
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash' },
-    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro' },
-    { id: 'gpt-5-mini', name: 'GPT 5 Mini' },
+    { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini-3.1-Flash-Lite' },
+    { id: 'gemini-3.1-pro-preview', name: 'Gemini-3.1-Pro' },
+    { id: 'gpt-5.4', name: 'GPT 5.4' },
+    { id: 'gpt-5.4-mini', name: 'GPT 5.4 Mini' },
+    { id: 'gpt-5.4-nano', name: 'GPT 5.4 Nano' },
+    { id: 'grok-4.2', name: 'Grok-4.2暴躁哥' },
+    { id: 'grok-4.2-normal', name: 'Grok-4.2' },
 ];
 
 const MODEL_CAPABILITIES: Record<string, { image: boolean; audio: boolean; video: boolean; pdf: boolean; any?: boolean }> = {
     'gemini-2.5-flash': { image: true, audio: true, video: true, pdf: true },
     'gemini-3-flash-preview': { image: true, audio: true, video: true, pdf: true },
+    'gemini-3.1-flash-lite-preview': { image: true, audio: true, video: true, pdf: true },
     'gemini-3.1-pro-preview': { image: true, audio: true, video: true, pdf: true, any: true },
-    'gpt-5.2': { image: true, audio: true, video: true, pdf: true },
-    'gpt-5-mini': { image: true, audio: false, video: false, pdf: true },
+    'gpt-5.4': { image: true, audio: false, video: false, pdf: true },
+    'gpt-5.4-mini': { image: true, audio: false, video: false, pdf: true },
+    'gpt-5.4-nano': { image: true, audio: false, video: false, pdf: true },
     'grok-4.1': { image: true, audio: false, video: false, pdf: true },
 };
 
 const VIDEO_MODELS = [
-  { 
-    id: 'sora-2', 
-    name: 'Sora-2', 
-    desc: '标清视频', 
-    supportedAspectRatios: ['9:16', '16:9'],
-    options: [
-      {s: '4', q: '标清'}, 
-      {s: '8', q: '标清'},
-      {s: '12', q: '标清'}
-    ] 
-  },
-  { 
-    id: 'sora-2-all', 
-    name: 'Sora-2-All', 
-    desc: '标清视频', 
-    supportedAspectRatios: ['9:16', '16:9'],
-    options: [
-      {s: '10', q: '标清'}, 
-      {s: '15', q: '标清'}
-    ] 
-  },
-  { 
-    id: 'sora-2-vip-all', 
-    name: 'Sora-2-vip-all', 
-    desc: '标清视频', 
-    supportedAspectRatios: ['9:16', '16:9'],
-    options: [
-      {s: '10', q: '标清'}
-    ] 
-  },
+  { id: 'veo_3_1-lite', name: 'veo_3_1-lite', desc: '标清/首尾帧(0.35元/次)', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '标清'}] },
+  { id: 'veo_3_1-lite-4K', name: 'veo_3_1-lite-4K', desc: '4K/首尾帧(0.385元/次)', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '4K'}] },
   { id: 'veo_3_1-fast', name: 'veo_3_1-fast', desc: '标清/首尾帧', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '标清'}] },
   { id: 'veo_3_1-fast-4K', name: 'veo_3_1-fast-4K', desc: '4K/首尾帧', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '4K'}] },
   { id: 'veo_3_1-fast-components-4K', name: 'veo_3_1-fast-components-4K', desc: '4K/多图融合', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '4K'}] },
@@ -268,7 +304,7 @@ const VIDEO_MODELS = [
   { id: 'veo3.1-pro-4k', name: 'veo3.1-pro-4k', desc: '4K/首尾帧', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '4K'}] },
   {
     id: 'seedance-2.0',
-    name: 'SEEDANCE 2.0待官方开放API',
+    name: 'SEEDANCE 2.0暂不可用',
     desc: '高清/多比例',
     supportedAspectRatios: ['9:16', '16:9', '1:1', '3:4', '4:3', '21:9'],
     options: [
@@ -284,9 +320,21 @@ const VIDEO_MODELS = [
     options: [
       {s: '6', q: '标清'},
       {s: '10', q: '标清', modelIdOverride: 'grok-video-3-10s'},
-      {s: '15', q: '标清', modelIdOverride: 'grok-video-3-15s'},
-      {s: '15', q: '高清', modelIdOverride: 'grok-video-3-15s'}
+      {s: '15', q: '标清（模型下线）', modelIdOverride: 'grok-video-3-15s', disabled: true},
+      {s: '15', q: '高清（模型下线）', modelIdOverride: 'grok-video-3-15s', disabled: true}
     ] 
+  },
+  {
+    id: 'grok-videos',
+    name: 'GROK VIDEOS',
+    desc: '高清视频',
+    supportedAspectRatios: ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'],
+    options: [
+      {s: '5', q: '标清'},
+      {s: '10', q: '标清'},
+      {s: '5', q: '高清'},
+      {s: '10', q: '高清'}
+    ]
   },
   { 
     id: 'kling-motion-control', 
@@ -305,6 +353,27 @@ const VIDEO_MODELS = [
     supportedAspectRatios: ['原图比例'],
     options: [
       {s: 'AUTO', q: '标准模式'}, {s: 'AUTO', q: '高品质模式'}
+    ] 
+  },
+  { 
+    id: 'sora-2-all', 
+    name: 'Sora-2-All', 
+    desc: '标清视频', 
+    supportedAspectRatios: ['9:16', '16:9'],
+    options: [
+      {s: '10', q: '标清'},
+      {s: '15', q: '标清'}
+    ] 
+  },
+  { 
+    id: 'sora-2', 
+    name: 'Sora-2(官转按秒计费)', 
+    desc: '标清视频', 
+    supportedAspectRatios: ['9:16', '16:9'],
+    options: [
+      {s: '4', q: '标清'}, 
+      {s: '8', q: '标清'},
+      {s: '12', q: '标清'}
     ] 
   },
   { 
@@ -370,8 +439,6 @@ const SHOT_TYPES = ["近景", "中景", "远景", "仰视", "俯视", "景深", 
 const LIGHTING_STYLES = ["阳光", "灯光", "柔和光", "霓虹光"];
 const COMPOSITION_STYLES = ["丰富细节", "背景简约"];
 const ATMOSPHERE_STYLES = ["神秘", "宁静", "温馨", "生动", "色彩艳丽"];
-
-const OPTIMIZER_MODEL = 'gemini-3-flash-preview';
 
 // --- Helpers ---
 const generateUUID = () => {
@@ -461,6 +528,14 @@ const findImageUrlInObject = (obj: any): string | null => {
     if (trimmed.startsWith('data:image')) return trimmed;
     const urlMatch = trimmed.match(/(https?:\/\/[^\s"'<>]+)/i);
     if (urlMatch) return urlMatch[1];
+    
+    // Check if it's a raw base64 image string (rudimentary heuristic)
+    if (trimmed.length > 100 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(trimmed.slice(0, 500))) {
+         if (trimmed.startsWith('iVBORw0KGgo') || trimmed.startsWith('/9j/') || trimmed.startsWith('UklGR')) {
+              return `data:image/png;base64,${trimmed}`;
+         }
+    }
+    
     return null;
   }
   if (Array.isArray(obj)) {
@@ -469,7 +544,16 @@ const findImageUrlInObject = (obj: any): string | null => {
       if (found) return found;
     }
   } else if (typeof obj === 'object') {
-    const priorityKeys = ['url', 'b64_json', 'image', 'img', 'link', 'content', 'data', 'url'];
+    if (typeof obj['b64_json'] === 'string') {
+        const b64 = obj['b64_json'].trim();
+        return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+    }
+    if (typeof obj['base64'] === 'string') {
+        const b64 = obj['base64'].trim();
+        if (b64.length > 50) return b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+    }
+
+    const priorityKeys = ['url', 'b64_json', 'image', 'img', 'link', 'content', 'data'];
     for (const key of priorityKeys) {
       if (obj[key]) {
         const found = findImageUrlInObject(obj[key]);
@@ -484,6 +568,19 @@ const findImageUrlInObject = (obj: any): string | null => {
     }
   }
   return null;
+};
+
+const LiveTimer = ({ startTime }: { startTime: number }) => {
+    const [seconds, setSeconds] = useState(Math.round((Date.now() - startTime) / 1000));
+    
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setSeconds(Math.round((Date.now() - startTime) / 1000));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [startTime]);
+    
+    return <span className="font-normal text-xs uppercase tracking-tighter italic">{Math.max(0, seconds)}s</span>;
 };
 
 // --- IndexedDB ---
@@ -537,26 +634,7 @@ const deleteAssetFromDB = async (id: string) => {
 };
 
 const renderMessageContent = (text: string) => {
-    const codeBlockRegex = /(```[\s\S]*?```)/g;
-    const segments = text.split(codeBlockRegex);
-    
-    return segments.map((segment, i) => {
-        if (segment.startsWith('```') && segment.endsWith('```')) {
-            return <span key={i}>{segment}</span>;
-        }
-        
-        const parts = segment.split(/(\*\*[\s\S]+?\*\*)/g);
-        return (
-            <span key={i}>
-                {parts.map((part, j) => {
-                     if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
-                         return <strong key={j} className="font-bold">{part.slice(2, -2)}</strong>;
-                     }
-                     return part;
-                })}
-            </span>
-        );
-    });
+    return <div className="markdown-body"><ReactMarkdown>{text}</ReactMarkdown></div>;
 };
 
 // --- ChatView Component ---
@@ -569,8 +647,8 @@ interface ChatViewProps {
     setInput: React.Dispatch<React.SetStateAction<string>>;
     isLoading: boolean;
     setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
-    attachments: { file: File, preview: string, type: string }[];
-    setAttachments: React.Dispatch<React.SetStateAction<{ file: File, preview: string, type: string }[]>>;
+    attachments: { file: File, preview: string, type: string, extractedText?: string }[];
+    setAttachments: React.Dispatch<React.SetStateAction<{ file: File, preview: string, type: string, extractedText?: string }[]>>;
     setActiveModal: (modal: ModalType) => void;
     modelId: string;
     setModelId: React.Dispatch<React.SetStateAction<string>>;
@@ -586,6 +664,7 @@ const ChatView = ({
     const [copiedId, setCopiedId] = useState<number | null>(null);
     const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
     const [isThinking, setIsThinking] = useState(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -601,52 +680,101 @@ const ChatView = ({
         }
     }, [input]);
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files) return;
+    const processFiles = (files: FileList | File[]) => {
+        if (!files || files.length === 0) return;
         
         const capabilities = MODEL_CAPABILITIES[modelId];
         let hasUnsupported = false;
 
         const validFiles = Array.from(files).filter((file: File) => {
-             // If model supports any file type, skip specific checks
              if (capabilities?.any) return true;
 
              let type = 'file';
              if (file.type.startsWith('image/')) type = 'image';
              else if (file.type.startsWith('audio/')) type = 'audio';
              else if (file.type.startsWith('video/')) type = 'video';
-             else if (file.type === 'application/pdf') type = 'pdf';
+             else if (file.type === 'application/pdf' || file.name.endsWith('.pdf') || file.name.endsWith('.txt') || file.name.endsWith('.doc') || file.name.endsWith('.docx') || file.type === 'text/plain') type = 'document';
              
              if (capabilities) {
                  if (type === 'image' && !capabilities.image) { hasUnsupported = true; return false; }
                  if (type === 'audio' && !capabilities.audio) { hasUnsupported = true; return false; }
                  if (type === 'video' && !capabilities.video) { hasUnsupported = true; return false; }
-                 if (type === 'pdf' && !capabilities.pdf) { hasUnsupported = true; return false; }
+                 if (type === 'document' && !capabilities.pdf) { hasUnsupported = true; return false; }
              }
              return true;
         });
 
         if (hasUnsupported) {
-            alert('该模型不支持该文件类型');
+            alert('不支持该文件格式');
         }
 
-        validFiles.forEach((file: File) => {
+        validFiles.forEach(async (file: File) => {
+            let type = 'file';
+            if (file.type.startsWith('image/')) type = 'image';
+            else if (file.type.startsWith('audio/')) type = 'audio';
+            else if (file.type.startsWith('video/')) type = 'video';
+            else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) type = 'pdf';
+            else if (file.name.endsWith('.txt') || file.type === 'text/plain') type = 'txt';
+            else if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) type = 'docx';
+
+            let extractedText = '';
+
+            if (type === 'txt') {
+                extractedText = await file.text();
+            } else if (type === 'pdf') {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                    let text = '';
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const content = await page.getTextContent();
+                        text += content.items.map((item: any) => item.str).join(' ') + '\n';
+                    }
+                    extractedText = text;
+                } catch (e) {
+                    console.error("PDF parse error", e);
+                }
+            } else if (type === 'docx') {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const result = await mammoth.extractRawText({ arrayBuffer });
+                    extractedText = result.value;
+                } catch (e) {
+                    console.error("DOCX parse error", e);
+                    try {
+                        extractedText = await file.text();
+                    } catch (e2) {
+                        console.error("Fallback text parse error", e2);
+                    }
+                }
+            }
+
             const reader = new FileReader();
             reader.onload = (ev) => {
                 const result = ev.target?.result as string;
-                let type = 'file';
-                if (file.type.startsWith('image/')) type = 'image';
-                else if (file.type.startsWith('audio/')) type = 'audio';
-                else if (file.type.startsWith('video/')) type = 'video';
-                else if (file.type === 'application/pdf') type = 'pdf';
-                // else type remains 'file' for unsupported mime types if allowed by ANY
-                
-                setAttachments(prev => [...prev, { file, preview: result, type }]);
+                setAttachments(prev => [...prev, { file, preview: result, type, extractedText }]);
             };
             reader.readAsDataURL(file);
         });
+    };
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            processFiles(e.target.files);
+        }
         e.target.value = '';
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        if (e.dataTransfer.files) {
+            processFiles(e.dataTransfer.files);
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
     };
 
     const removeAttachment = (idx: number) => {
@@ -668,8 +796,16 @@ const ChatView = ({
         setIsModelDropdownOpen(false);
     };
 
-    const generateResponse = async (history: ChatMessage[]) => {
+    const generateResponse = async (history: ChatMessage[], retryModelId?: string) => {
         setIsLoading(true);
+        const currentModelId = retryModelId || modelId;
+        
+        // Cancel any ongoing request
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+        
         try {
             const key = ((config.selectedKeyIndex === 1 ? config.apiKey2 : config.apiKey) || (typeof process !== 'undefined' && process.env && process.env.API_KEY ? process.env.API_KEY : '')).trim();
             if (!key) throw new Error("请先设置API Key");
@@ -678,13 +814,18 @@ const ChatView = ({
             const lastDividerIndex = history.map(m => !!m.isDivider).lastIndexOf(true);
             const activeHistory = history.slice(lastDividerIndex + 1).filter(m => !m.isDivider && m.role !== 'system');
             
-            const systemPromptText = "你是一个智能助手。请严格遵守以下规则：\n1. **语言限制**：无论用户输入什么语言，你**必须全程使用中文**进行回复（代码片段除外）。\n2. **文件分析**：如果用户上传了文件，请仔细分析文件内容并用中文回答相关问题。\n3. **禁止思考内容**：直接输出最终答案，**严禁**输出思考过程、思维链(Chain of Thought)、<think>标签或内部独白。\n4. **直接回复**：不包含无意义的开场白或客套话。";
+            let systemPromptText = "你是一个智能助手。请严格遵守以下规则：\n1. **语言限制**：无论用户输入什么语言，你**必须全程使用中文**进行回复（代码片段除外）。\n2. **文件分析**：如果用户上传了文件，请仔细分析文件内容并用中文回答相关问题。\n3. **禁止思考内容**：直接输出最终答案，**严禁**输出思考过程、思维链(Chain of Thought)、<think>标签或内部独白。\n4. **直接回复**：不包含无意义的开场白或客套话。";
+            
+            if (currentModelId === 'grok-4.2') {
+                systemPromptText = "你是一个AI助手，你的性格暴躁，缺乏耐心，说话粗鲁带脏话；爱抬杠、爱抱怨，言语刻薄，喜欢贬低别人；遇事推卸责任，敏感多疑，情绪不稳定；爱开黄腔，口无遮拦。请严格遵守以下规则：\n1. **语言限制**：必须全程使用中文进行回复。\n2. **禁止思考内容**：直接输出最终答案，严禁输出思考过程、思维链或内部独白。\n3. **直接回复**：不包含无意义的客套话，完全代入上述人设进行回答。";
+            }
+            
             let responseText = "";
-            let targetModelId = modelId;
+            let targetModelId = currentModelId;
 
-            // Handle Thinking Variant for Gemini 3 Pro
-            if (modelId === 'gemini-3.1-pro-preview' && isThinking) {
-                targetModelId = modelId + '-thinking';
+            // Handle Thinking Variant for Gemini 3.1 Pro
+            if (currentModelId === 'gemini-3.1-pro-preview' && isThinking) {
+                targetModelId = 'gemini-3.1-pro-preview-thinking';
             }
 
             // OpenAI Compatible format for all chat models (including Gemini via proxy)
@@ -697,14 +838,23 @@ const ChatView = ({
                 if (msg.files && msg.files.length > 0) {
                     const content: any[] = [{ type: "text", text: msg.text }];
                     msg.files.forEach(f => {
-                         // Support images for OpenAI endpoint compatibility. 
-                         // For Gemini models via proxy, we also pass other supported types as image_url if the proxy supports multimodal input this way,
-                         // but for safety we stick to images or check if it's a Gemini model to be more permissive.
                          const isGemini = targetModelId.startsWith('gemini');
-                         if (f.type === 'image' || (f.file && f.file.type.startsWith('image/')) || isGemini) {
+                         if (f.type === 'image' || (f.file && f.file.type.startsWith('image/'))) {
                              content.push({
                                  type: "image_url",
                                  image_url: { url: f.data }
+                             });
+                         } else if (isGemini && (f.type === 'audio' || f.type === 'video')) {
+                             content.push({
+                                 type: "image_url",
+                                 image_url: { url: f.data }
+                             });
+                         }
+                         
+                         if (f.extractedText) {
+                             content.push({
+                                 type: "text",
+                                 text: `\n--- 文件内容 (${f.file?.name || 'document'}) ---\n${f.extractedText}\n--- 文件结束 ---\n`
                              });
                          }
                     });
@@ -724,18 +874,56 @@ const ChatView = ({
                     model: targetModelId,
                     messages: messages,
                     stream: false
-                })
+                }),
+                signal: abortControllerRef.current.signal
             });
 
             const data = await res.json();
             if (data.error) throw new Error(data.error.message);
             responseText = data.choices?.[0]?.message?.content || "No response";
             
-            setMessages(prev => [...prev, { role: 'model', text: responseText }]);
+            if (retryModelId) {
+                const modelName = CHAT_MODELS.find(m => m.id === retryModelId)?.name || retryModelId;
+                setModelId(retryModelId);
+                setMessages(prev => [...prev, 
+                    { role: 'system', text: `已切换至 ${modelName} 模型为您重新生成`, isDivider: true },
+                    { role: 'model', text: responseText }
+                ]);
+            } else {
+                setMessages(prev => [...prev, { role: 'model', text: responseText }]);
+            }
 
         } catch (error: any) {
+            if (error.name === 'AbortError') {
+                console.log('Request aborted');
+                setMessages(prev => [...prev, { role: 'system', text: '已停止生成', isDivider: true }]);
+                return;
+            }
+            console.error("Generation error:", error);
+            // Auto-switch logic
+            if (!retryModelId) {
+                const currentIndex = CHAT_MODELS.findIndex(m => m.id === modelId);
+                const nextModel = CHAT_MODELS[(currentIndex + 1) % CHAT_MODELS.length];
+                if (nextModel && nextModel.id !== modelId) {
+                    await generateResponse(history, nextModel.id);
+                    return;
+                }
+            }
             setMessages(prev => [...prev, { role: 'model', text: `Error: ${error.message}`, error: true }]);
         } finally {
+            if (abortControllerRef.current?.signal.aborted === false) {
+                abortControllerRef.current = null;
+            }
+            if (!retryModelId) {
+                setIsLoading(false);
+            }
+        }
+    };
+
+    const stopGeneration = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
             setIsLoading(false);
         }
     };
@@ -743,10 +931,54 @@ const ChatView = ({
     const sendMessage = async () => {
         if ((!input.trim() && attachments.length === 0) || isLoading) return;
 
+        let finalInput = input;
+        let displayText = input;
+        const isImageReverse = input.includes("@图片反推");
+        const isVideoReverse = input.includes("@视频反推");
+
+        if (isImageReverse) {
+             finalInput = `你是专业的AI绘画提示词工程师，擅长从图片1:1精准反推可直接复现画面的完整绘画提示词。
+
+请针对 Google 的 gemini-3-pro-image 模型，精准反推我上传图片的 AI 绘画提示词，要求： 
+1. 提示词完全适配 gemini-3-pro-image 模型的语法和偏好，直接复制即可生成与原图 1:1 完全一致的图片； 
+2. 完整提取所有关键信息：主体内容、细节纹理、材质质感、构图方式、光影类型、色彩体系、背景元素、风格标签； 
+3. 标注该模型适配的核心生成参数：分辨率、生成风格权重、无冗余修饰词；
+ 4. 提示词回传格式（固定结构，可直接复制，纯文本格式）
+采用英文+中文对照结构，按以下格式输出：
+英文提示词：[完整可直接使用的英文提示词]
+中文提示词：[完整可直接使用的中文提示词]
+
+${input.replace("@图片反推", "").trim()}`;
+             displayText = input;
+        } else if (isVideoReverse) {
+             finalInput = `你是资深视频拉片分析师、AI 生视频提示词工程师，核心能力是从视频中 1:1 拆解可直接用于 AI 生视频的标准化拉片数据与风格总结。用户上传视频后，你需严格执行以下操作，仅输出拉片笔记表格与总结，无任何额外说明 or 补充。
+
+一、核心分析规则（强制遵守，无例外）
+1.逐镜头拆解：严格按照视频时间轴顺序划分镜头，不合并、不遗漏、不调整顺序，镜号从 1 开始连续编号。
+
+2.全维度精准识别（每镜头必须完整覆盖）：
+镜头参数：景别（仅限：远景、中景、近景、特写、大特写）；镜头运动（仅限：固定、推进、拉远、平移、旋转、跟随）
+画面信息：人物（动作、服装、表情）、物体（颜色、材质）、光线类型、场景细节、艺术风格
+音频信息：旁白（原话完整转录）、旁白语气、BGM 风格、环境音、特效音
+时长：估算每镜头持续时间，单位为秒，保留 1 位小数
+内容类型判定：自动识别视频核心类型（可标注 1-2 个）
+视频类目判定：自动识别视频类目
+
+二、输出格式（固定结构，可直接复制，纯文本格式）
+画面风格：[完整提取所有关键信息：主体内容、细节纹理、材质质感、构图方式、光影类型、色彩体系、背景元素、风格标签，适配 AI 生视频提示词使用]
+音频风格：[精准概括视频核心音频风格，适配 AI 生视频提示词使用]
+视频拉片笔记:
+镜号 | 景别 / 角度 | 运动 | 画面内容 | 音频 | 时长 (秒)
+
+${input.replace("@视频反推", "").trim()}`;
+             displayText = input;
+        }
+
         const userMsg: ChatMessage = {
             role: 'user',
-            text: input,
-            files: attachments.map(a => ({ type: a.type, data: a.preview, file: a.file }))
+            text: finalInput,
+            displayText: displayText,
+            files: attachments.map(a => ({ type: a.type, data: a.preview, file: a.file, extractedText: a.extractedText }))
         };
 
         const newHistory = [...messages, userMsg];
@@ -775,6 +1007,7 @@ const ChatView = ({
     };
 
     const handleNewTopic = () => {
+        stopGeneration();
         setMessages([{ role: 'model', text: INITIAL_CHAT_MESSAGE_TEXT }]);
         setInput('');
         setAttachments([]);
@@ -782,10 +1015,12 @@ const ChatView = ({
     };
 
     const handleClearInput = () => {
+        stopGeneration();
         setInput('');
     };
     
     const handleClearContext = () => {
+        stopGeneration();
         // Prevent adding multiple dividers in a row
         if (messages.length > 0 && !messages[messages.length - 1].isDivider) {
              setMessages(prev => [...prev, { role: 'system', text: '上下文已清除 / Context Cleared', isDivider: true }]);
@@ -803,7 +1038,7 @@ const ChatView = ({
     };
 
     return (
-        <div className="flex flex-col h-full bg-[#fdfdfd] border-t-0 border-black relative">
+        <div className="flex flex-col h-full bg-white border-t-0 border-black relative">
             {/* Top Bar - Model Selection */}
             <div className="border-b border-gray-100 bg-white relative z-50">
                 <div className="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between">
@@ -842,7 +1077,11 @@ const ChatView = ({
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto bg-white no-scrollbar pb-48">
+            <div 
+                className="flex-1 overflow-y-auto bg-white no-scrollbar pb-80"
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+            >
                 <div className="max-w-6xl mx-auto p-4 space-y-6">
                 {messages.map((msg, idx) => {
                     if (msg.isDivider) {
@@ -860,7 +1099,7 @@ const ChatView = ({
                             <div 
                                 className={`max-w-[85%] p-4 text-base leading-relaxed shadow-sm rounded-2xl
                                 ${msg.role === 'user' 
-                                    ? 'bg-[#F4F4F5] text-gray-800' 
+                                    ? 'bg-zinc-100 text-gray-800' 
                                     : 'bg-white border border-gray-200 text-gray-700'
                                 }`}
                             >
@@ -869,17 +1108,17 @@ const ChatView = ({
                                         {msg.files.map((f, i) => (
                                             <div key={i} className={`px-2 py-1 text-xs rounded flex items-center gap-1 ${msg.role === 'user' ? 'bg-white' : 'bg-gray-100'}`}>
                                                 {getIconForType(f.type === 'application/pdf' ? 'pdf' : f.type.split('/')[0])}
-                                                {f.type.includes('image') ? 'Image' : 'File'}
+                                                {f.file ? f.file.name : (f.type.includes('image') ? 'Image' : 'File')}
                                             </div>
                                         ))}
                                     </div>
                                 )}
                                 <div className={`whitespace-pre-wrap font-sans ${msg.error ? 'text-red-500' : ''}`}>
-                                    {renderMessageContent(msg.text)}
+                                    {renderMessageContent(msg.displayText || msg.text)}
                                 </div>
                             </div>
-                            {msg.role === 'model' && !msg.error && (
-                                <div className="flex items-center gap-2 mt-2 px-1 opacity-100 transition-opacity">
+                            {msg.role === 'model' && !msg.error && msg.text !== INITIAL_CHAT_MESSAGE_TEXT && (
+                                <div className="flex items-center gap-2 mt-1 px-1 opacity-100 transition-opacity min-h-[40px] pb-2 mb-2">
                                         <button onClick={() => handleCopy(msg.text, idx)} className="p-2 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors" title="复制">
                                             {copiedId === idx ? <Check className="w-4 h-4 text-green-500"/> : <Copy className="w-4 h-4"/>}
                                         </button>
@@ -898,9 +1137,12 @@ const ChatView = ({
                 })}
                 {isLoading && (
                     <div className="flex justify-start">
-                        <div className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-2 shadow-sm">
-                            <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                            <span className="text-xs text-gray-400">Thinking...</span>
+                        <div className="bg-white border border-gray-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm animate-pulse">
+                            <div className="relative">
+                                <Bot className="w-6 h-6 text-green-500 animate-bounce" />
+                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-400 rounded-full animate-ping"></div>
+                            </div>
+                            <span className="text-sm font-medium text-gray-700">AI 正在思考中...</span>
                         </div>
                     </div>
                 )}
@@ -909,17 +1151,29 @@ const ChatView = ({
             </div>
             
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-white z-20">
-                <div className="max-w-6xl mx-auto bg-[#F4F4F5] rounded-xl p-3 relative flex flex-col transition-all focus-within:bg-white focus-within:ring-2 focus-within:ring-gray-100 border border-transparent focus-within:border-gray-200">
+                <div className="max-w-6xl mx-auto mb-2 flex gap-2">
+                    <button onClick={() => setInput(prev => prev + "@图片反推")} className="text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-full border border-gray-200 transition-colors flex items-center gap-1.5 shadow-sm">
+                        <ImageIcon className="w-4 h-4" /> 图片反推
+                    </button>
+                    <button onClick={() => setInput(prev => prev + "@视频反推")} className="text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-full border border-gray-200 transition-colors flex items-center gap-1.5 shadow-sm">
+                        <Video className="w-4 h-4" /> 视频反推
+                    </button>
+                </div>
+                <div 
+                    className="max-w-6xl mx-auto bg-zinc-100 rounded-xl p-3 relative flex flex-col transition-all focus-within:bg-white focus-within:ring-2 focus-within:ring-gray-100 border border-transparent focus-within:border-gray-200"
+                    onDrop={handleDrop}
+                    onDragOver={handleDragOver}
+                >
                     <div className="flex-1 relative px-2 pt-2">
                          {attachments.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-2 max-h-[120px] overflow-y-auto px-1">
                                 {attachments.map((att, i) => (
-                                    <div key={i} className="flex items-center gap-2 bg-[#E0F2F1] text-[#00695C] px-3 py-2 rounded-xl text-sm border border-[#B2DFDB] max-w-full w-fit animate-in fade-in zoom-in-95">
+                                    <div key={i} className="flex items-center gap-2 bg-teal-50 text-teal-800 px-3 py-2 rounded-xl text-sm border border-teal-200 max-w-full w-fit animate-in fade-in zoom-in-95">
                                         <div className="shrink-0">
                                            {getIconForType(att.type)}
                                         </div>
                                         <span className="truncate max-w-[150px] font-medium" title={att.file.name}>{att.file.name}</span>
-                                        <button onClick={() => removeAttachment(i)} className="text-[#00695C] hover:text-[#D32F2F] ml-1 p-0.5 hover:bg-[#B2DFDB] rounded-full transition-colors">
+                                        <button onClick={() => removeAttachment(i)} className="text-teal-800 hover:text-red-700 ml-1 p-0.5 hover:bg-teal-200 rounded-full transition-colors">
                                             <X className="w-3.5 h-3.5" />
                                         </button>
                                     </div>
@@ -932,6 +1186,17 @@ const ChatView = ({
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                             placeholder="在这里输入消息，按 Enter 发送"
+                            onPaste={(e) => {
+                                const items = e.clipboardData.items;
+                                for (let i = 0; i < items.length; i++) {
+                                    if (items[i].type.indexOf("image") !== -1) {
+                                        const file = items[i].getAsFile();
+                                        if (file) {
+                                            processFiles([file]);
+                                        }
+                                    }
+                                }
+                            }}
                             className="w-full bg-transparent border-none resize-none focus:ring-0 outline-none text-base text-gray-800 placeholder:text-gray-400 min-h-[72px] max-h-[144px] overflow-y-auto chat-input-scrollbar"
                         />
                     </div>
@@ -946,13 +1211,12 @@ const ChatView = ({
                                     ref={fileInputRef} 
                                     className="hidden" 
                                     multiple 
-                                    accept={MODEL_CAPABILITIES[modelId]?.any ? "*" : "image/*,audio/*,video/*,application/pdf"}
+                                    accept="*"
                                     onChange={handleFileSelect}
                                  />
                              </button>
                              <button onClick={() => setActiveModal('library')} className="text-gray-600 hover:bg-gray-200 rounded-full p-2 transition-colors" title="快捷短语"><Zap className="w-5 h-5"/></button>
                              <button onClick={handleClearInput} className="text-gray-600 hover:bg-gray-200 rounded-full p-2 transition-colors" title="清空输入"><Brush className="w-5 h-5"/></button>
-                             <button onClick={() => setActiveModal('edit-prompt')} className="text-gray-600 hover:bg-gray-200 rounded-full p-2 transition-colors" title="展开"><Maximize2 className="w-5 h-5"/></button>
                              <button onClick={handleClearContext} className="text-gray-600 hover:bg-gray-200 rounded-full p-2 transition-colors" title="清除上下文"><Eraser className="w-5 h-5"/></button>
                              {modelId === 'gemini-3.1-pro-preview' && (
                                 <button
@@ -966,11 +1230,11 @@ const ChatView = ({
                          </div>
                          
                          <button 
-                            onClick={sendMessage}
-                            disabled={isLoading || (!input.trim() && attachments.length === 0)}
+                            onClick={isLoading ? stopGeneration : sendMessage}
+                            disabled={!isLoading && (!input.trim() && attachments.length === 0)}
                             className={`w-10 h-10 flex items-center justify-center rounded-full transition-all duration-200
                                 ${isLoading 
-                                    ? 'bg-gray-100 text-black cursor-not-allowed' 
+                                    ? 'bg-gray-100 text-black hover:bg-gray-200 shadow-sm cursor-pointer' 
                                     : (input.trim() || attachments.length > 0)
                                         ? 'bg-green-500 text-white hover:bg-green-600 shadow-md transform hover:scale-105'
                                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -1022,128 +1286,294 @@ const ModalHeader = ({ title, icon: Icon, onClose, bgColor = "bg-brand-yellow" }
 
 const PRICE_DATA = [
   {
-    category: 'AI对话',
+    category: '文本模型',
     items: [
-      { m: 'Gemini-3-Flash', p: '提示0.34元/ 1M tokens，补全1.44元/ 1M tokens' },
-      { m: 'Gemini-3.1-Pro-Preview', p: '提示1.37元/ 1M tokens，补全8.23元/ 1M tokens' },
-      { m: 'GPT-5-Mini', p: '提示0.17元/ 1M tokens，补全1.37元/ 1M tokens' }
+      { m: 'Gemini-3.1-Flash-Lite', p: '提示0.263元/1M tokens，补全1.575元/1M tokens' },
+      { m: 'Gemini-3.1-Pro', p: '提示1.120元/1M tokens，补全6.720元/1M tokens' },
+      { m: 'GPT-5.4', p: '提示1.050元/1M tokens，补全6.300元/1M tokens' },
+      { m: 'GPT-5.4-Mini', p: '提示0.315元/1M tokens，补全1.890元/1M tokens' },
+      { m: 'GPT-5.4-Nano', p: '提示0.084元/1M tokens，补全0.504元/1M tokens' },
+      { m: 'Grok-4.2', p: '提示2.100元/1M tokens，补全10.500元/1M tokens' }
     ]
   },
   {
-    category: '图片创作',
+    category: '图片模型',
     items: [
-      { m: 'Gemini-2.5-Flash-Image', p: '0.07元/张' },
+      { m: 'Gemini-2.5-Flash-Image', p: '0.063元/张' },
       { m: 'Gemini-3.1-Flash-Image', p: '1K/2K 0.116元/张，4K 0.207元/张' },
-      { m: 'Gemini-3-Pro-Image', p: '1K/2K 0.16元/张，4K 0.29元/张' },
-      { m: 'GPT Image 2', p: '0.06元/张' },
-      { m: 'Kling Image O1', p: '0.27元/张' },
-      { m: 'GPT Image 1', p: '0.07元/张' },
-      { m: 'GPT Image 1.5', p: '0.07元/张' },
-      { m: 'Grok 4 Image', p: '0.07元/张' },
+      { m: 'Gemini-3-Pro-Image', p: '1K/2K 0.231元/张，4K 0.414元/张' },
+      { m: 'Kling Image O1', p: '0.238元/张' },
+      { m: 'GPT Image 1.5', p: '0.055元/张' },
+      { m: 'GPT IMAGE 2(推荐使用)', p: '提示3.500元/1M tokens    补全21.000元/1M tokens' },
+      { m: 'GPT Image 2 ALL', p: '0.060元/张' },
+      { m: 'Grok 4 Image', p: '0.056元/张' },
+      { m: 'Grok Imagine Image', p: '0.146元/张' },
+      { m: 'Doubao Seedream 5.0', p: '0.154元/张' },
     ]
   },
   {
-    category: '视频创作',
+    category: '视频模型',
     items: [
-      { m: 'Sora-2-all', p: 'default分组 0.16元/条，sora-vip分组 0.64/条' },
-      { m: 'Sora-2-vip-all', p: 'sora-vip分组 2.00元/条' },
-      { m: 'Sora-2', p: <div className="flex flex-col items-end text-right">
-        <div>官转 0.24元/秒</div>
-        <div>官转Open AI分组 0.48元/秒</div>
-        <div>优质官转Open AI分组 0.64元/秒</div>
+      { m: 'veo_3_1-lite', p: '0.350元/条' },
+      { m: 'veo_3_1-lite-4K', p: '0.385元/条' },
+      { m: 'veo_3_1-fast', p: '0.301元/条' },
+      { m: 'veo_3_1-fast-4K', p: '0.301元/条' },
+      { m: 'veo_3_1-fast-components-4K', p: '0.602元/条' },
+      { m: 'veo_3_1', p: '0.511元/条' },
+      { m: 'veo_3_1-4K', p: '0.595元/条' },
+      { m: 'veo_3_1-components', p: '0.511元/条' },
+      { m: 'veo_3_1-components-4K', p: '0.595元/条' },
+      { m: 'veo3.1-fast', p: '0.490元/条' },
+      { m: 'veo3.1-fast-components', p: '0.182元/条' },
+      { m: 'veo3.1', p: '0.490元/条' },
+      { m: 'veo3.1-4k', p: '0.700元/条' },
+      { m: 'veo3.1-components', p: '0.490元/条' },
+      { m: 'veo3.1-components-4k', p: '0.700元/条' },
+      { m: 'veo3.1-pro-4k', p: '2.450元/条' },
+      { m: 'Grok Video 3', p: '0.280元/6秒，0.280元/10秒' },
+      { m: 'GROK VIDEOS', p: '0.140元/次' },
+      { m: 'Kling Control Std (动作转移)', p: '0.595元/秒' },
+      { m: 'Kling Control Pro (动作转移)', p: '0.952元/秒' },
+      { m: 'KLING Avatar Std (数字人)', p: '1.190元/秒' },
+      { m: 'KLING Avatar Pro (数字人)', p: '2.380元/秒' },
+      { m: 'Sora-2-all', p: 'default分组 0.14元/条' },
+      { m: 'Sora-2(官转按秒计费)', p: <div className="flex flex-col items-end text-right">
+        <div>官转 0.21元/秒</div>
+        <div>官转Open AI分组 0.42元/秒</div>
+        <div>优质官转Open AI分组 0.56元/秒</div>
       </div> },
-      { m: 'Sora-2-Pro-All', p: '2.88元/条' },
-      { m: 'veo_3_1-fast', p: '0.21元/条' },
-      { m: 'veo_3_1-fast-4K', p: '0.21元/条' },
-      { m: 'veo_3_1-fast-components-4K', p: '0.41元/条' },
-      { m: 'veo_3_1', p: '0.35元/条' },
-      { m: 'veo_3_1-4K', p: '0.41元/条' },
-      { m: 'veo_3_1-components', p: '0.35元/条' },
-      { m: 'veo_3_1-components-4K', p: '0.41元/条' },
-      { m: 'veo3.1-fast', p: '0.56元/条' },
-      { m: 'veo3.1-fast-components', p: '0.13元/条' },
-      { m: 'veo3.1', p: '0.56元/条' },
-      { m: 'veo3.1-4k', p: '0.80元/条' },
-      { m: 'veo3.1-components', p: '0.33元/条' },
-      { m: 'veo3.1-components-4k', p: '0.80元/条' },
-      { m: 'veo3.1-pro-4k', p: '2.80元/条' },
-      { m: 'Grok Video 3', p: '0.16元/6秒，0.32元/10秒，0.40元/15秒' },
-      { m: 'Kling Control Std (动作转移)', p: '0.68元/秒' },
-      { m: 'Kling Control Pro (动作转移)', p: '1.09元/秒' },
-      { m: 'KLING Avatar Std (数字人)', p: '0.54元/秒' },
-      { m: 'KLING Avatar Pro (数字人)', p: '1.09元/秒' },
+      { m: 'Sora-2-Pro-All', p: '2.520元/条' },
     ]
   },
   {
     category: '语音合成',
     items: [
-      { m: 'Gemini 2.5 Pro TTS', p: '提示0.57元/ 1M tokens，补全13.71元/ 1M tokens' },
+      { m: 'Gemini 2.5 Pro TTS', p: '提示1.05元/ 1M tokens，补全21.00元/ 1M tokens' },
     ]
   }
 ];
 
 const PriceView = () => {
-    const [expanded, setExpanded] = useState<Record<number, boolean>>(
-        PRICE_DATA.reduce((acc, cat, idx) => ({...acc, [idx]: cat.category === '图片创作'}), {})
-    );
-
-    const toggle = (idx: number) => {
-        setExpanded(prev => ({...prev, [idx]: !prev[idx]}));
-    };
-
     return (
-        <div className="p-0 overflow-y-auto no-scrollbar flex-1 bg-[#F8FAFC]">
+        <div className="p-4 md:p-6 overflow-y-auto no-scrollbar flex-1 bg-white space-y-6">
             {PRICE_DATA.map((cat, idx) => (
-                <div key={idx} className="border-b-2 border-black last:border-b-0">
-                  <div 
-                    onClick={() => toggle(idx)}
-                    className="bg-brand-yellow px-5 py-2 border-b border-black flex items-center justify-between gap-2 sticky top-0 z-10 shadow-sm cursor-pointer hover:bg-[#e6c000] transition-colors select-none"
-                  >
-                    <div className="flex items-center gap-3">
-                        <span className="text-xl font-bold uppercase tracking-tight">{cat.category}</span>
+                <div key={idx} className="border-2 border-black rounded-xl p-4 md:p-5 bg-white">
+                    <div className="border-b-[3px] border-black pb-2 mb-4">
+                        <h3 className="text-xl font-bold text-black">{cat.category}</h3>
                     </div>
-                    <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${expanded[idx] ? 'rotate-180' : 'rotate-0'}`} />
-                  </div>
-                  
-                  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${expanded[idx] ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                      <div className="divide-y divide-black/5 bg-white">
-                        {cat.items.map((item, iidx) => (
-                          <div key={iidx} className="flex justify-between items-center px-6 py-2 hover:bg-brand-cream transition-colors group">
-                            <span className="text-lg font-medium text-slate-800 group-hover:text-black">{item.m}</span>
-                            <span className="text-base font-medium text-black">
-                                {item.p}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                  </div>
+                    <div className="space-y-2.5">
+                        {cat.items.map((item, iidx) => {
+                            const isTextModel = cat.category === '文本模型';
+                            const decimals = isTextModel ? 3 : undefined;
+                            
+                            let priceContent;
+                            if (typeof item.p === 'string') {
+                                if (item.p.includes('，')) {
+                                    const parts = item.p.split('，');
+                                    priceContent = (
+                                        <div className="flex flex-col sm:flex-row gap-2 sm:gap-12 text-gray-500 text-sm font-medium">
+                                            {parts.map((p, i) => <span key={i}>{formatPriceString(p.trim(), decimals)}</span>)}
+                                        </div>
+                                    );
+                                } else {
+                                    priceContent = <span className="text-gray-500 text-sm font-medium">{formatPriceString(item.p, decimals)}</span>;
+                                }
+                            } else {
+                                priceContent = (
+                                  <div className="flex flex-col items-end text-right text-gray-500 text-sm font-medium">
+                                    {React.Children.map(item.p.props.children, (child) => {
+                                      if (typeof child === 'string') return <div>{formatPriceString(child, decimals)}</div>;
+                                      if (React.isValidElement(child)) {
+                                        return React.cloneElement(child as React.ReactElement, {
+                                          children: React.Children.map((child as React.ReactElement).props.children, (c) => 
+                                            typeof c === 'string' ? formatPriceString(c, decimals) : c
+                                          )
+                                        });
+                                      }
+                                      return child;
+                                    })}
+                                  </div>
+                                );
+                            }
+
+                            return (
+                                <div key={iidx} className="flex flex-col md:flex-row justify-between items-start md:items-center px-4 py-2.5 border-2 border-black rounded-lg bg-white gap-2">
+                                    <span className="text-base font-bold text-black">{item.m}</span>
+                                    {priceContent}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             ))}
         </div>
     );
 };
 
+const BrutalistAudioPlayer = ({ src, coverUrl }: { src: string, coverUrl?: string }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const onTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+      setProgress((audioRef.current.currentTime / audioRef.current.duration) * 100 || 0);
+    }
+  };
+
+  const onLoadedMetadata = () => {
+    if (audioRef.current) {
+      setDuration(audioRef.current.duration);
+    }
+  };
+
+  const onEnded = () => {
+    setIsPlaying(false);
+    setProgress(0);
+    setCurrentTime(0);
+  };
+
+  const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newProgress = parseFloat(e.target.value);
+    if (audioRef.current) {
+      audioRef.current.currentTime = (newProgress / 100) * audioRef.current.duration;
+      setProgress(newProgress);
+    }
+  };
+
+  const formatTime = (time: number) => {
+    if (isNaN(time)) return "0:00";
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center relative bg-zinc-900 p-6 overflow-hidden select-none">
+      {/* Background Glow */}
+      <div className={`absolute inset-0 bg-brand-yellow/5 transition-opacity duration-1000 ${isPlaying ? 'opacity-100' : 'opacity-0'}`} />
+      
+      <audio 
+        ref={audioRef} 
+        src={src} 
+        onTimeUpdate={onTimeUpdate} 
+        onLoadedMetadata={onLoadedMetadata} 
+        onEnded={onEnded}
+      />
+
+      <div className="relative z-10 flex flex-col items-center w-full max-w-[200px]">
+        {/* Spinning Disk / Cover */}
+        <div className="relative mb-8 group">
+          <div className={`w-28 h-28 rounded-full border-4 border-black brutalist-shadow-lg overflow-hidden relative z-20 transition-transform duration-[5000ms] linear ${isPlaying ? 'rotate-[360deg] animate-[spin_8s_linear_infinite]' : ''}`}>
+            {coverUrl ? (
+              <img src={coverUrl} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-brand-yellow flex items-center justify-center">
+                <Music className="w-12 h-12 text-black" />
+              </div>
+            )}
+            {/* Center Hole */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-6 h-6 bg-zinc-900 border-2 border-black rounded-full shadow-inner flex items-center justify-center">
+                <div className="w-1 h-1 bg-white rounded-full" />
+              </div>
+            </div>
+          </div>
+          
+          {/* Play/Pause Overlay Button */}
+          <button 
+            onClick={togglePlay}
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-white border-2 border-black rounded-full flex items-center justify-center brutalist-shadow hover:scale-110 active:scale-95 transition-all z-30 opacity-90 hover:opacity-100"
+          >
+            {isPlaying ? <Pause className="w-8 h-8 text-black fill-current" /> : <Play className="w-8 h-8 text-black fill-current ml-1" />}
+          </button>
+        </div>
+
+        {/* Progress & Controls */}
+        <div className="w-full space-y-3">
+          <div className="flex justify-between items-end">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black uppercase tracking-widest text-brand-yellow/60 leading-none mb-1">Now Playing</span>
+              <span className="text-xs font-bold text-white uppercase tracking-tighter truncate max-w-[120px]">Audio Track</span>
+            </div>
+            <div className="text-[10px] font-mono text-brand-yellow bg-black px-1.5 py-0.5 border border-brand-yellow/30">
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </div>
+          </div>
+          
+          <div className="relative h-2 bg-zinc-800 border border-zinc-700 overflow-hidden">
+             <div 
+               className="absolute top-0 left-0 h-full bg-brand-yellow transition-all duration-100"
+               style={{ width: `${progress}%` }}
+             />
+             <input 
+               type="range" 
+               min="0" 
+               max="100" 
+               step="0.1"
+               value={progress} 
+               onChange={handleProgressChange}
+               onClick={(e) => e.stopPropagation()}
+               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30"
+             />
+          </div>
+          
+          {/* Visualizer Mockup */}
+          <div className="flex items-end justify-between h-4 gap-0.5 px-1">
+            {[...Array(12)].map((_, i) => (
+              <div 
+                key={i} 
+                className={`w-full bg-brand-yellow/40 transition-all duration-300 ${isPlaying ? 'animate-pulse' : 'h-1'}`}
+                style={{ 
+                  height: isPlaying ? `${Math.random() * 100}%` : '20%',
+                  animationDelay: `${i * 0.1}s`
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
   const [mainCategory, setMainCategory] = useState<MainCategory>('image');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isMarqueeVisible, setIsMarqueeVisible] = useState(true);
+  const [showAnnouncement, setShowAnnouncement] = useState(true);
   
   // Chat state moved here for persistence
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([{ role: 'model', text: INITIAL_CHAT_MESSAGE_TEXT }]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [chatAttachments, setChatAttachments] = useState<{ file: File, preview: string, type: string }[]>([]);
+  const [chatAttachments, setChatAttachments] = useState<{ file: File, preview: string, type: string, extractedText?: string }[]>([]);
   const [chatModelId, setChatModelId] = useState('gemini-3-flash-preview');
 
   const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
   const [selectedVideoModel, setSelectedVideoModel] = useState(VIDEO_MODELS[0].id);
   const [selectedAudioModel, setSelectedAudioModel] = useState(AUDIO_MODELS[0].id);
   const [selectedVoice, setSelectedVoice] = useState(VOICES[0].id);
-  const [audioGenMode, setAudioGenMode] = useState<'single' | 'multi'>('single');
+
   const [speakerMap, setSpeakerMap] = useState<{id: string, name: string, voice: string}[]>([
-    { id: '1', name: '角色A', voice: 'Puck' },
-    { id: '2', name: '角色B', voice: 'Zephyr' }
+    { id: '1', name: '角色A', voice: 'Puck' }
   ]);
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
+  const [optimizingLineId, setOptimizingLineId] = useState<string | null>(null);
   const [videoOptionIdx, setVideoOptionIdx] = useState(0);
   const [videoRatio, setVideoRatio] = useState('9:16');
   const [isSyncAudio, setIsSyncAudio] = useState(false);
@@ -1152,18 +1582,25 @@ const App = () => {
   const [klingDubVol, setKlingDubVol] = useState(1.0);
   const [klingSrcVol, setKlingSrcVol] = useState(0.0);
   const [isTransparent, setIsTransparent] = useState(false);
-  const [activeModal, setActiveModal] = useState<ModalType>('announcement');
+  const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [previewAsset, setPreviewAsset] = useState<GeneratedAsset | null>(null);
   const [previewRefImage, setPreviewRefImage] = useState<ReferenceImage | null>(null);
   const [config, setConfig] = useState<AppConfig>({ baseUrl: FIXED_BASE_URL, apiKey: '' });
   const [tempConfig, setTempConfig] = useState<AppConfig>(config);
+  const [showKey1, setShowKey1] = useState(false);
+  const [showKey2, setShowKey2] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [libraryPrompts, setLibraryPrompts] = useState<SavedPrompt[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+
+  useEffect(() => {
+    document.title = APP_CONFIG.APP_NAME;
+  }, []);
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const [referenceVideos, setReferenceVideos] = useState<ReferenceImage[]>([]);
   const [referenceAudios, setReferenceAudios] = useState<ReferenceAudio[]>([]);
   const [imageSize, setImageSize] = useState('AUTO');
+  const [imageQuality, setImageQuality] = useState('auto');
   const [aspectRatio, setAspectRatio] = useState('1:1');
   const [generationCount, setGenerationCount] = useState(1);
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -1175,7 +1612,7 @@ const App = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [draggedPromptIdx, setDraggedPromptIdx] = useState<number | null>(null);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const [dialogueLines, setDialogueLines] = useState<DialogueLine[]>([]);
+  const [dialogueLines, setDialogueLines] = useState<DialogueLine[]>([{ id: generateUUID(), speakerId: '1', text: '' }]);
   const [seedanceDuration, setSeedanceDuration] = useState(10);
   
   // Library State & other states...
@@ -1200,11 +1637,19 @@ const App = () => {
     { id: 'img-conv', name: '图片格式转换', desc: '支持JPG, PNG, BMP, WEBP等多种格式互转。', url: 'https://www.xunjietupian.com/', icon: 'ImageIcon' },
     { id: 'uu-remote', name: '网易UU远程', desc: '网易出品，免费高清流畅的远程控制软件。', url: 'https://uuyc.163.com', icon: 'Monitor' },
     { id: 'img-url', name: '图片转URL链接', desc: '快速将图片转换为在线URL链接。', url: 'https://lsky.zhongzhuan.chat', icon: 'Link' },
+    { id: 'watermark', name: '图片/PDF去水印', desc: 'Pilio.ai - 专业的图片与PDF在线去水印工具。', url: 'https://pilio.ai/zh', icon: 'Eraser' },
+    { id: 'md-editor', name: 'Markdown编辑器', desc: '在线 Markdown 实时编辑器，支持一边写一边预览效果，并可快速发布文档。', url: 'https://doocs.gitee.io/md', icon: 'FileText' },
     { id: 'vpn', name: '科学上网（付费）', desc: '高速稳定的网络加速服务。', url: 'https://caomei888.top/#/register?code=iPB4QjfQ', icon: 'Globe' }
   ]);
   const [draggedResourceIdx, setDraggedResourceIdx] = useState<number | null>(null);
 
   const galleryRef = useRef<HTMLDivElement>(null);
+
+  const scrollToGallery = () => {
+    if (window.innerWidth < 768 && galleryRef.current) {
+        galleryRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
   const configRef = useRef(config);
 
   const safeEnvKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY) ? process.env.API_KEY : '';
@@ -1213,20 +1658,97 @@ const App = () => {
   const isProxyMode = mainCategory === 'proxy';
   const isAudioMode = mainCategory === 'audio';
   const isChatMode = mainCategory === 'chat';
-  const isAnnouncementMode = mainCategory === 'announcement';
   const isResourcesMode = mainCategory === 'resources';
+
+  useEffect(() => {
+    if (isAudioMode && dialogueLines.length === 0 && speakerMap.length > 0) {
+      setDialogueLines([{ id: generateUUID(), speakerId: speakerMap[0].id, text: '' }]);
+    }
+  }, [isAudioMode, speakerMap]);
   
-  // Determine if we should show the full-width view (like Chat, Proxy, Announcement)
-  const isFullWidthMode = isChatMode || isProxyMode || isAnnouncementMode || isResourcesMode;
+  // Determine if we should show the full-width view (like Chat, Proxy, Resources)
+  const isFullWidthMode = isChatMode || isProxyMode || isResourcesMode;
 
   const handleSaveShortcut = () => {
-    const shortcut = `[InternetShortcut]
-URL=https://p.jiguangmanying.xyz
-`;
-    const blob = new Blob([shortcut], { type: 'text/plain' });
+    const appUrl = "https://" + APP_CONFIG.DESKTOP_SAVE_URL;
+    const appName = APP_CONFIG.APP_NAME;
+    const robotIconSvg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F472B6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 8V4H8'/><rect width='16' height='12' x='4' y='8' rx='2'/><path d='M2 14h2'/><path d='M20 14h2'/><path d='M15 13v2'/><path d='M9 13v2'/></svg>`;
+    
+    const htmlContent = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${appName}</title>
+    <link rel="icon" href="data:image/svg+xml,${robotIconSvg}">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #fdfdfd;
+            color: #333;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+            border: 2px solid #000;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .icon {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        h1 { margin: 0 0 0.5rem 0; font-size: 1.5rem; }
+        p { margin: 0; color: #666; }
+        .loader {
+            margin-top: 1.5rem;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #000;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+    <script>
+        window.onload = function() {
+            setTimeout(function() {
+                window.location.href = "${appUrl}";
+            }, 500);
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#F472B6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+        </div>
+        <h1>${appName}</h1>
+        <p>正在为您跳转到应用...</p>
+        <div class="loader"></div>
+    </div>
+</body>
+</html>`;
+
+    const blob = new Blob([htmlContent], { type: 'text/html' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = '极光漫影 AI助手.url';
+    link.download = `${appName}.html`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1267,7 +1789,7 @@ URL=https://p.jiguangmanying.xyz
 
   // Sync Dialogue Lines to Prompt when in Multi Audio Mode
   useEffect(() => {
-    if (isAudioMode && audioGenMode === 'multi') {
+    if (isAudioMode) {
         const text = dialogueLines.map(line => {
              const speaker = speakerMap.find(s => s.id === line.speakerId);
              const name = speaker ? speaker.name : (speakerMap.length > 0 ? speakerMap[0].name : 'Unknown');
@@ -1279,11 +1801,22 @@ URL=https://p.jiguangmanying.xyz
 
   // ... (useEffects for models remain same) ...
   useEffect(() => {
-    if (!isVideoMode && !isProxyMode && !isAudioMode && !isChatMode && !isAnnouncementMode && !isResourcesMode) {
+    if (!isVideoMode && !isProxyMode && !isAudioMode && !isChatMode && !isResourcesMode) {
       const model = MODELS.find(m => m.id === selectedModel);
       if (model) {
         if (!model.supportedAspectRatios.includes(aspectRatio)) setAspectRatio(model.supportedAspectRatios[0]);
-        if (!model.supportedResolutions.includes(imageSize)) setImageSize(model.supportedResolutions[0]);
+
+        let allowedResolutions = model.supportedResolutions;
+        if (model.id === 'gpt-image-2' || model.id === 'gpt-image-2-all') {
+             const sizesForRatio = GPT2_SIZES[aspectRatio] || {};
+             allowedResolutions = allowedResolutions.filter(res => sizesForRatio[res]);
+        }
+        
+        if (!allowedResolutions.includes(imageSize) && allowedResolutions.length > 0) {
+            setImageSize(allowedResolutions[0]);
+        }
+
+        if (model.supportedQualities && !model.supportedQualities.includes(imageQuality)) setImageQuality(model.supportedQualities[0]);
       }
     } else if (isVideoMode) {
       const model = VIDEO_MODELS.find(m => m.id === selectedVideoModel);
@@ -1410,7 +1943,7 @@ URL=https://p.jiguangmanying.xyz
   // ... (Polling, helpers, upload functions - no changes needed, reusing existing)
   
   const saveConfig = () => {
-    const normalized = { ...tempConfig, baseUrl: FIXED_BASE_URL };
+    const normalized = { ...tempConfig };
     setConfig(normalized);
     setTempConfig(normalized);
     localStorage.setItem('viva_config', JSON.stringify(normalized));
@@ -1453,6 +1986,10 @@ URL=https://p.jiguangmanying.xyz
             
             const taskStatus = data.data?.task_status || '';
             
+            // Check for error logs in response
+            const logs = (data.data?.task_log || data.data?.usage_log || '').toString();
+            const hasLogError = /error|fail|exception/i.test(logs) && !/no error|success/i.test(logs);
+
             if (taskStatus === 'succeed') {
                  const images = data.data?.task_result?.images;
                  const imageUrl = images && images.length > 0 ? images[0].url : null;
@@ -1465,8 +2002,8 @@ URL=https://p.jiguangmanying.xyz
                      updateAssetStatus(assetId, 'failed', '无图');
                  }
                  clearInterval(interval);
-            } else if (taskStatus === 'failed') {
-                 const errorMsg = data.data?.task_status_msg || '失败';
+            } else if (taskStatus === 'failed' || hasLogError) {
+                 const errorMsg = data.data?.task_status_msg || (hasLogError ? logs.slice(0, 100) : '失败');
                  updateAssetStatus(assetId, 'failed', errorMsg);
                  clearInterval(interval);
             }
@@ -1503,6 +2040,10 @@ URL=https://p.jiguangmanying.xyz
             const taskStatus = data.data?.task_status || '';
             const taskResult = data.data?.task_result;
             
+            // Check for error logs in response
+            const logs = (data.data?.task_log || data.data?.usage_log || '').toString();
+            const hasLogError = /error|fail|exception/i.test(logs) && !/no error|success/i.test(logs);
+
             if (taskStatus === 'succeed') {
                  const videoUrl = taskResult?.videos?.[0]?.url;
                  if (videoUrl) {
@@ -1513,8 +2054,8 @@ URL=https://p.jiguangmanying.xyz
                      updateAssetStatus(assetId, 'failed', '无视频');
                  }
                  clearInterval(interval);
-            } else if (taskStatus === 'failed') {
-                 const errorMsg = data.data?.task_status_msg || '失败';
+            } else if (taskStatus === 'failed' || hasLogError) {
+                 const errorMsg = data.data?.task_status_msg || (hasLogError ? logs.slice(0, 100) : '失败');
                  updateAssetStatus(assetId, 'failed', errorMsg);
                  clearInterval(interval);
             }
@@ -1548,9 +2089,11 @@ URL=https://p.jiguangmanying.xyz
             }
 
             const data = await res.json();
+            console.log("Polling result for task", taskId, data);
             
             // Check for API level error objects
             if (data.error) {
+                 console.error("Polling API Error Response for task", taskId, data);
                  updateAssetStatus(assetId, 'failed', data.error.message || 'API Error');
                  clearInterval(interval);
                  return;
@@ -1559,8 +2102,12 @@ URL=https://p.jiguangmanying.xyz
             const rawStatus = (data.status || data.state || data.data?.status || '').toLowerCase();
             const videoUrl = data.video_url || data.url || data.uri || data.data?.url || data.data?.video_url;
 
+            // Check for error logs in response
+            const logs = (data.logs || data.task_log || data.usage_log || '').toString();
+            const hasLogError = /error|fail|exception/i.test(logs);
+
             const isSuccess = ['completed', 'succeeded', 'success', 'done'].includes(rawStatus);
-            const isFailed = ['failed', 'error', 'rejected'].includes(rawStatus);
+            const isFailed = ['failed', 'error', 'rejected', 'cancelled', 'timeout', 'exception'].includes(rawStatus) || hasLogError || (data.status === 'failed') || (data.data?.status === 'failed');
 
             if (isSuccess && videoUrl) {
                 const finishTime = Date.now();
@@ -1568,7 +2115,8 @@ URL=https://p.jiguangmanying.xyz
                 updateAssetStatus(assetId, 'completed', `${diff}s`, videoUrl);
                 clearInterval(interval);
             } else if (isFailed) {
-                const reason = data.fail_reason || data.error_msg || data.error || '失败';
+                console.error("Polling Detected Failure for task", taskId, {data, hasLogError});
+                const reason = data.fail_reason || data.error_msg || data.error || data.task_status_msg || (hasLogError ? logs.slice(0, 100) : '失败');
                 updateAssetStatus(assetId, 'failed', reason);
                 clearInterval(interval);
             }
@@ -1578,33 +2126,43 @@ URL=https://p.jiguangmanying.xyz
     }, 3000);
   };
   
-  const resetInputState = () => {
+  const resetInputState = (options: { keepImages?: boolean } = {}) => {
     setPrompt('');
-    setReferenceImages([]);
+    if (!options.keepImages) setReferenceImages([]);
     setReferenceVideos([]);
     setReferenceAudios([]);
     setError(null);
     setDialogueLines([]);
   };
 
-  const handleAudioModeChange = (mode: 'single' | 'multi') => {
-      setAudioGenMode(mode);
-      if (mode === 'multi') {
-          const lines = parsePromptToLines(prompt, speakerMap);
-          setDialogueLines(lines);
-      }
-  };
+  // Auto-trim reference images when model changes
+  useEffect(() => {
+    let limit = 4;
+    if (isVideoMode) {
+        if (selectedVideoModel === 'seedance-2.0') limit = 9;
+        else if (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') limit = 1;
+        else if (selectedVideoModel.includes('components')) limit = 3;
+        else if (selectedVideoModel.startsWith('veo')) limit = 2;
+        else limit = 1;
+    } else {
+        const model = MODELS.find(m => m.id === selectedModel);
+        limit = model?.maxReferenceImages ?? model?.maxImages ?? 4;
+    }
+
+    if (referenceImages.length > limit) {
+        setReferenceImages(prev => prev.slice(0, limit));
+    }
+  }, [selectedModel, selectedVideoModel, isVideoMode, referenceImages.length]);
 
   // ... (Other handlers are reused directly from original code) ...
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const processImageFiles = (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
     const currentModel = MODELS.find(m => m.id === selectedModel);
     
     let max = 4;
     if (!isVideoMode) {
-        max = currentModel?.maxImages || 4;
+        max = currentModel?.maxReferenceImages ?? currentModel?.maxImages ?? 4;
     } else {
         if (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') {
             max = 1;
@@ -1655,11 +2213,16 @@ URL=https://p.jiguangmanying.xyz
       };
       reader.readAsDataURL(file as Blob);
     });
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+        processImageFiles(e.target.files);
+    }
     e.target.value = '';
   };
 
-  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const processVideoFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
     if (selectedVideoModel === 'seedance-2.0') {
@@ -1718,11 +2281,16 @@ URL=https://p.jiguangmanying.xyz
             setError(`无法读取视频文件 ${file.name}`);
         }
     }
+  };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+        await processVideoFiles(e.target.files);
+    }
     e.target.value = '';
   };
   
-  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const processAudioFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
     
     if (selectedVideoModel === 'seedance-2.0') {
@@ -1795,7 +2363,37 @@ URL=https://p.jiguangmanying.xyz
              setError(`无法读取音频文件 ${file.name}`);
         }
     }
+  };
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+        await processAudioFiles(e.target.files);
+    }
     e.target.value = '';
+  };
+
+  const handleDropMain = async (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const files = e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+
+      const imageFiles: File[] = [];
+      const videoFiles: File[] = [];
+      const audioFiles: File[] = [];
+
+      Array.from(files).forEach(file => {
+          if (file.type.startsWith('image/')) imageFiles.push(file);
+          else if (file.type.startsWith('video/')) videoFiles.push(file);
+          else if (file.type.startsWith('audio/')) audioFiles.push(file);
+      });
+
+      if (imageFiles.length > 0) processImageFiles(imageFiles);
+      if (videoFiles.length > 0) await processVideoFiles(videoFiles);
+      if (audioFiles.length > 0) await processAudioFiles(audioFiles);
+  };
+
+  const handleDragOverMain = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
   };
 
   const removeReferenceImage = (id: string) => setReferenceImages(prev => prev.filter(img => img.id !== id));
@@ -1837,30 +2435,6 @@ URL=https://p.jiguangmanying.xyz
 2. 不要包含任何分析、解释、标题或分点（如"核心主题"、"画面细节"等）。
 3. 确保提示词适合Sora 2或Veo等模型理解。
 4. 仅输出提示词本身。`;
-     } else if (isAudioMode) {
-       if (audioGenMode === 'multi') {
-           sys = `你是一位精通多角色对话剧本创作的专家。你的任务是为对话添加表演指导。
-
-请严格遵循以下规则：
-1. **保持原义**：**绝对禁止**修改、润色或改写用户的原始对话内容。必须原封不动地保留原文。
-2. **添加指导**：分析对话语境，在每一句台词内容的**最前方**添加关于【风格】、【语气】、【口音】或【节奏】的自然语言指导（使用括号包裹）。
-3. **格式要求**：
-   RoleName: (指导内容) 原始对话内容
-   RoleName: (指导内容) 原始对话内容
-
-RoleName必须严格对应用户输入中的角色名。`;
-       } else {
-           sys = `你是一位精通语音合成（TTS）的提示词优化专家。你的任务是为用户的输入添加语音风格、语气、口音和语速指令。
-
-请严格遵循以下规则：
-1. **保持原义**：**绝对禁止**修改、润色或改写用户的原始文本内容。必须原封不动地保留原文。
-2. **前置指令**：根据文本内容分析情感，在文本的**最前方**添加自然语言指令（使用括号包裹），描述应采用的【风格】、【语气】、【口音】或【节奏】。
-   - 格式必须为：“(指令描述) [原始文本]”
-   - 例如用户输入“为什么会这样”，输出：“(用悲伤、缓慢且略带颤抖的语气说) 为什么会这样”
-   - 例如用户输入“咱们今儿个真高兴”，输出：“(用欢快、急促的节奏，带有京腔口音说) 咱们今儿个真高兴”
-
-只输出最终结果，不要包含任何解释。`;
-       }
      }
 
      try {
@@ -1881,31 +2455,109 @@ RoleName必须严格对应用户输入中的角色名。`;
             { role: "user", content: userContent }
         ];
 
-        const res = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+      let lastError = null;
+      const modelsToTry = CHAT_MODELS.map(m => m.id);
+      
+      for (const model of modelsToTry) {
+        try {
+          const res = await fetch(`${config.baseUrl}/v1/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
             body: JSON.stringify({ 
-                model: OPTIMIZER_MODEL, 
+                model: model, 
                 messages: messages, 
                 max_tokens: 2000 
             })
-        });
-        const data = await res.json();
-        
-        if (data.error) throw new Error(data.error.message || "Optimization Error");
+          });
+          const data = await res.json();
+          
+          if (data.error) throw new Error(data.error.message || "Optimization Error");
 
-        const optimized = data.choices?.[0]?.message?.content?.trim();
-        if (optimized) { 
-            if (isAudioMode && audioGenMode === 'multi') {
-                const newLines = parsePromptToLines(optimized, speakerMap);
-                setDialogueLines(newLines);
-                // Prompt will be auto-updated by useEffect
-            } else {
-                setPrompt(optimized); 
-            }
-            setError(null); 
+          const optimized = data.choices?.[0]?.message?.content?.trim();
+          if (optimized) { 
+              if (isAudioMode) {
+                  const newLines = parsePromptToLines(optimized, speakerMap);
+                  setDialogueLines(newLines);
+              } else {
+                  setPrompt(optimized); 
+              }
+              setError(null);
+              setIsOptimizing(false);
+              return;
+          }
+        } catch (e: any) {
+          lastError = e;
+          console.warn(`Model ${model} failed, trying next...`, e);
         }
+      }
+      
+      if (lastError) {
+        setError("AI优化失败: " + (lastError.message || "所有模型均尝试失败"));
+      }
      } catch (e: any) { setError("AI优化失败: " + (e.message || "未知错误")); } finally { setIsOptimizing(false); }
+  };
+
+  const optimizeLine = async (lineId: string) => {
+     const line = dialogueLines.find(l => l.id === lineId);
+     if (!line || !line.text.trim()) return;
+     
+     let key = ((config.selectedKeyIndex === 1 ? config.apiKey2 : config.apiKey) || safeEnvKey).trim();
+     if (!key) { setError("请先设置API Key"); return; }
+     
+     setOptimizingLineId(lineId);
+     
+     const sys = `你是一位精通语音合成（TTS）的提示词优化专家。你的任务是为用户的输入添加语音风格、语气、口音和语速指令。
+
+请严格遵循以下规则：
+1. **保持原义**：**绝对禁止**修改、润色或改写用户的原始文本内容。必须原封不动地保留原文。
+2. **前置指令**：根据文本内容分析情感，在文本的**最前方**添加自然语言指令（使用括号包裹），描述应采用的【风格】、【语气】、【口音】或【节奏】。
+   - 格式必须为：“(指令描述) [原始文本]”
+   - 例如用户输入“为什么会这样”，输出：“(用悲伤、缓慢且略带颤抖的语气说) 为什么会这样”
+   - 例如用户输入“咱们今儿个真高兴”，输出：“(用欢快、急促的节奏，带有京腔口音说) 咱们今儿个真高兴”
+
+只输出最终结果，不要包含任何解释。`;
+
+     try {
+        const messages = [
+            { role: "system", content: sys },
+            { role: "user", content: line.text }
+        ];
+
+      let lastError = null;
+      const modelsToTry = CHAT_MODELS.map(m => m.id);
+      
+      for (const model of modelsToTry) {
+        try {
+          const res = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+            body: JSON.stringify({ 
+                model: model, 
+                messages: messages, 
+                max_tokens: 2000 
+            })
+          });
+          const data = await res.json();
+          
+          if (data.error) throw new Error(data.error.message || "Optimization Error");
+
+          const optimized = data.choices?.[0]?.message?.content?.trim();
+          if (optimized) { 
+              setDialogueLines(prev => prev.map(l => l.id === lineId ? { ...l, text: optimized } : l));
+              setError(null);
+              setOptimizingLineId(null);
+              return;
+          }
+        } catch (e: any) {
+          lastError = e;
+          console.warn(`Model ${model} failed, trying next...`, e);
+        }
+      }
+      
+      if (lastError) {
+        setError("AI优化失败: " + (lastError.message || "所有模型均尝试失败"));
+      }
+     } catch (e: any) { setError("AI优化失败: " + (e.message || "未知错误")); } finally { setOptimizingLineId(null); }
   };
 
   // ... (Styles, Library, Drag handlers remain the same) ...
@@ -2020,7 +2672,7 @@ RoleName必须严格对应用户输入中的角色名。`;
     if (mainCategory === 'chat') {
         setChatInput(prev => prev ? prev + '\n' + text : text);
     } else {
-        if (isAudioMode && audioGenMode === 'multi') {
+        if (isAudioMode) {
             const lines = parsePromptToLines(text, speakerMap);
             setDialogueLines(lines);
         }
@@ -2192,7 +2844,7 @@ RoleName必须严格对应用户输入中的角色名。`;
     const tPrompt = overrideConfig?.prompt ?? prompt;
     const tModelId = overrideConfig?.modelId ?? selectedAudioModel;
     const tVoice = overrideConfig?.selectedVoice ?? selectedVoice;
-    const tAudioMode = overrideConfig?.audioGenMode ?? audioGenMode;
+    const tAudioMode = overrideConfig?.audioGenMode ?? 'multi';
     const tSpeakerMap = overrideConfig?.speakerMap ?? speakerMap;
     // Removed unused tRefAudio declaration
 
@@ -2230,20 +2882,24 @@ RoleName必须严格对应用户输入中的角色名。`;
 
     setGeneratedAssets(prev => [placeholder, ...prev]);
     setError(null);
+    scrollToGallery();
 
     try {
         const generationConfig: any = {
             responseModalities: ["AUDIO"]
         };
 
-        if (tAudioMode === 'single') {
+        if (tAudioMode === 'single' || tSpeakerMap.length === 1) {
+            const voiceToUse = tAudioMode === 'single' ? tVoice : tSpeakerMap[0].voice;
             generationConfig.speechConfig = {
                 voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: tVoice }
+                    prebuiltVoiceConfig: { voiceName: voiceToUse }
                 }
             };
         } else {
              if (tSpeakerMap.length === 0) throw new Error("Please add at least one speaker");
+             if (tSpeakerMap.length > 2) throw new Error("目前多角色模式仅支持 2 个角色，请删除多余角色");
+             
              generationConfig.speechConfig = {
                 multiSpeakerVoiceConfig: {
                     speakerVoiceConfigs: tSpeakerMap.map((s: any) => ({
@@ -2371,212 +3027,238 @@ RoleName必须严格对应用户输入中的角色名。`;
       });
     }
     setGeneratedAssets(prev => [...placeholders, ...prev]);
-
     setError(null);
+    scrollToGallery();
     try {
         const createOne = async (pId: string) => {
-            let response;
-            const isVeoModel = apiModelId.startsWith('veo3.1');
-            const isGrokModel = apiModelId.startsWith('grok');
-            const isJimengModel = apiModelId.startsWith('jimeng');
-            
-            if (apiModelId === 'kling-motion-control') {
-                if (tRefs.length === 0) throw new Error("请上传一张参考图片 (Image Required)");
-                if (tRefVideos.length === 0) throw new Error("请上传参考视频 (Video Required)");
-
-                const durationObj = modelDef!.options[tOptIdx];
-                const mode = durationObj.q === '高品质模式' ? 'pro' : 'std';
+            try {
+                let response;
+                const isVeoModel = apiModelId.startsWith('veo3.1');
+                const isGrokModel = apiModelId.startsWith('grok');
+                const isJimengModel = apiModelId.startsWith('jimeng');
                 
-                const payload: any = {
-                    prompt: tPrompt || undefined,
-                    keep_original_sound: tKlingKeepSound ? 'yes' : 'no',
-                    character_orientation: tKlingOrientation,
-                    mode: mode
-                };
+                if (apiModelId === 'kling-motion-control') {
+                    if (tRefs.length === 0) throw new Error("请上传一张参考图片 (Image Required)");
+                    if (tRefVideos.length === 0) throw new Error("请上传参考视频 (Video Required)");
 
-                if (tRefs[0].data.startsWith('http')) {
-                    payload.image_url = tRefs[0].data;
-                } else {
-                    payload.image = tRefs[0].data;
+                    const durationObj = modelDef!.options[tOptIdx];
+                    const mode = durationObj.q === '高品质模式' ? 'pro' : 'std';
+                    
+                    const payload: any = {
+                        prompt: tPrompt || undefined,
+                        keep_original_sound: tKlingKeepSound ? 'yes' : 'no',
+                        character_orientation: tKlingOrientation,
+                        mode: mode
+                    };
+
+                    if (tRefs[0].data.startsWith('http')) {
+                        payload.image_url = tRefs[0].data;
+                    } else {
+                        payload.image = tRefs[0].data;
+                    }
+
+                    if (tRefVideos[0].data.startsWith('http')) {
+                        payload.video_url = tRefVideos[0].data;
+                    } else {
+                        payload.video = tRefVideos[0].data;
+                    }
+
+                    response = await fetch(`${config.baseUrl}/kling/v1/videos/motion-control`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    const data = await response.json();
+                    if (!response.ok || (data.code && data.code !== 0)) throw new Error(data.message || data.error?.message || "Kling动作转移失败");
+                    
+                    const tid = data.data?.task_id;
+                    if (!tid) throw new Error("No Task ID returned from Kling API");
+                    
+                    const updatedAsset: any = { ...placeholders.find(x => x.id === pId), status: 'queued', taskId: tid };
+                    setGeneratedAssets(prev => prev.map(a => a.id === pId ? updatedAsset : a));
+                    saveAssetToDB(updatedAsset);
+                    
+                    startKlingVideoPolling(tid, pId, startTime, 'motion-control');
+                    return;
                 }
 
-                if (tRefVideos[0].data.startsWith('http')) {
-                    payload.video_url = tRefVideos[0].data;
-                } else {
-                    payload.video = tRefVideos[0].data;
+                if (apiModelId === 'kling-avatar-image2video') {
+                    if (tRefs.length === 0) throw new Error("请上传一张人像参考图");
+                    if (tRefAudios.length === 0) throw new Error("请上传驱动音频 (MP3/WAV/M4A/AAC, 2-60s)");
+                    
+                    const durationObj = modelDef!.options[tOptIdx];
+                    const mode = durationObj.q === '高品质模式' ? 'pro' : 'std';
+                    
+                    const payload: any = {
+                        sound_file: tRefAudios[0].data,
+                        prompt: tPrompt || "",
+                        mode: mode,
+                        callback_url: "",
+                        external_task_id: ""
+                    };
+
+                    if (tRefs[0].data.startsWith('http')) {
+                        payload.image_url = tRefs[0].data;
+                    } else {
+                        payload.image = tRefs[0].data;
+                    }
+
+                    response = await fetch(`${config.baseUrl}/kling/v1/videos/avatar/image2video`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok || (data.code && data.code !== 0)) throw new Error(data.message || data.error?.message || "Kling数字人生成失败");
+                    
+                    const tid = data.data?.task_id;
+                    if (!tid) throw new Error("No Task ID returned from Kling API");
+
+                    const updatedAsset: any = { ...placeholders.find(x => x.id === pId), status: 'queued', taskId: tid };
+                    setGeneratedAssets(prev => prev.map(a => a.id === pId ? updatedAsset : a));
+                    saveAssetToDB(updatedAsset);
+                    
+                    startKlingVideoPolling(tid, pId, startTime, 'avatar/image2video');
+                    return;
                 }
 
-                response = await fetch(`${config.baseUrl}/kling/v1/videos/motion-control`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                if (isVeoModel || isGrokModel || isJimengModel || isKlingModel) {
+                    const payload: any = {
+                        model: apiModelId,
+                        prompt: tPrompt,
+                        images: tRefs.map((img: ReferenceImage) => img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`),
+                        aspect_ratio: tRatio
+                    };
+
+                    if (isVeoModel) {
+                        payload.enhance_prompt = true;
+                        payload.enable_upsample = true;
+                    }
+
+                    if (isGrokModel) {
+                        payload.size = '720P';
+                    }
+
+                    if (isJimengModel) {
+                        payload.duration = parseInt((modelDef!.options[tOptIdx] as any).s);
+                    }
+                    
+                    if (isKlingModel) {
+                        payload.duration = parseInt((modelDef!.options[tOptIdx] as any).s);
+                    }
+
+                    if ((isKlingModel || isGrokModel) && tSyncAudio) {
+                        payload.sync_audio = true;
+                    }
+
+                    response = await fetch(`${config.baseUrl}/v1/video/create`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                } else {
+                    const formData = new FormData();
+                    formData.append('model', apiModelId);
+                    formData.append('prompt', tPrompt);
+                    
+                    if (apiModelId === 'seedance-2.0') {
+                        formData.append('seconds', tSeedanceDuration.toString());
+                    } else {
+                        formData.append('seconds', (modelDef!.options[tOptIdx] as any).s);
+                    }
+                    
+                    formData.append('size', tRatio.replace(':', 'x'));
+                    formData.append('watermark', 'false');
+                    
+                    if (tRefs && tRefs.length > 0) {
+                        for (let i = 0; i < tRefs.length; i++) {
+                                const img = tRefs[i];
+                                let blob: Blob | null = null;
+                                if (img.data.startsWith('http')) {
+                                    blob = await urlToBlob(img.data);
+                                } else {
+                                    blob = base64ToBlob(img.data, img.mimeType);
+                                }
+                                if (blob) formData.append('input_reference', blob, `图片 ${i+1}.png`);
+                        }
+                    }
+
+                    if (apiModelId === 'seedance-2.0') {
+                        if (tRefVideos && tRefVideos.length > 0) {
+                            for (let i = 0; i < tRefVideos.length; i++) {
+                                    const vid = tRefVideos[i];
+                                    let blob: Blob | null = null;
+                                    if (vid.data.startsWith('http')) {
+                                        blob = await urlToBlob(vid.data);
+                                    } else {
+                                        blob = base64ToBlob(vid.data, vid.mimeType);
+                                    }
+                                    if (blob) formData.append('input_reference', blob, `视频 ${i+1}.mp4`);
+                            }
+                        }
+                        if (tRefAudios && tRefAudios.length > 0) {
+                            for (let i = 0; i < tRefAudios.length; i++) {
+                                    const aud = tRefAudios[i];
+                                    let blob: Blob | null = null;
+                                    if (aud.data.startsWith('http')) {
+                                        blob = await urlToBlob(aud.data);
+                                    } else {
+                                        blob = base64ToBlob(aud.data, aud.mimeType);
+                                    }
+                                    if (blob) formData.append('input_reference', blob, `音频 ${i+1}.mp3`);
+                            }
+                        }
+                    }
+
+                    response = await fetch(`${config.baseUrl}/v1/videos`, { method: 'POST', headers: { 'Authorization': `Bearer ${key}` }, body: formData });
+                }
                 
                 const data = await response.json();
-                if (!response.ok || (data.code && data.code !== 0)) throw new Error(data.message || data.error?.message || "Kling动作转移失败");
+                if (!response.ok || (data.code && data.code !== 0)) {
+                    let errorMsg = "视频生成接口错误";
+                    if (data.error && typeof data.error === 'string') {
+                        errorMsg = data.error;
+                    } else if (data.error && typeof data.error === 'object' && data.error.message) {
+                        errorMsg = data.error.message;
+                    } else if (data.message) {
+                        errorMsg = data.message;
+                    }
+                    throw new Error(errorMsg);
+                }
                 
-                const tid = data.data?.task_id;
-                if (!tid) throw new Error("No Task ID returned from Kling API");
-                
+                const tid = data.id || data.data?.id || data.data?.task_id || data.task_id || data.taskId;
+                if (!tid) {
+                    let errorMsg = "视频生成接口错误";
+                    if (data.error && typeof data.error === 'string') {
+                        errorMsg = data.error;
+                    } else if (data.error && typeof data.error === 'object' && data.error.message) {
+                        errorMsg = data.error.message;
+                    } else if (data.message) {
+                        errorMsg = data.message;
+                    }
+                    throw new Error(errorMsg);
+                }
+
                 const updatedAsset: any = { ...placeholders.find(x => x.id === pId), status: 'queued', taskId: tid };
                 setGeneratedAssets(prev => prev.map(a => a.id === pId ? updatedAsset : a));
                 saveAssetToDB(updatedAsset);
-                
-                startKlingVideoPolling(tid, pId, startTime, 'motion-control');
-                return;
-            }
-
-            if (apiModelId === 'kling-avatar-image2video') {
-                if (tRefs.length === 0) throw new Error("请上传一张人像参考图");
-                if (tRefAudios.length === 0) throw new Error("请上传驱动音频 (MP3/WAV/M4A/AAC, 2-60s)");
-                
-                const durationObj = modelDef!.options[tOptIdx];
-                const mode = durationObj.q === '高品质模式' ? 'pro' : 'std';
-                
-                const payload: any = {
-                    sound_file: tRefAudios[0].data,
-                    prompt: tPrompt || "",
-                    mode: mode,
-                    callback_url: "",
-                    external_task_id: ""
-                };
-
-                if (tRefs[0].data.startsWith('http')) {
-                    payload.image_url = tRefs[0].data;
-                } else {
-                    payload.image = tRefs[0].data;
-                }
-
-                response = await fetch(`${config.baseUrl}/kling/v1/videos/avatar/image2video`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const data = await response.json();
-                if (!response.ok || (data.code && data.code !== 0)) throw new Error(data.message || data.error?.message || "Kling数字人生成失败");
-                
-                const tid = data.data?.task_id;
-                if (!tid) throw new Error("No Task ID returned from Kling API");
-
-                const updatedAsset: any = { ...placeholders.find(x => x.id === pId), status: 'queued', taskId: tid };
-                setGeneratedAssets(prev => prev.map(a => a.id === pId ? updatedAsset : a));
-                saveAssetToDB(updatedAsset);
-                
-                startKlingVideoPolling(tid, pId, startTime, 'avatar/image2video');
-                return;
-            }
-
-            if (isVeoModel || isGrokModel || isJimengModel || isKlingModel) {
-                const payload: any = {
-                    model: apiModelId,
-                    prompt: tPrompt,
-                    images: tRefs.map((img: ReferenceImage) => img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`),
-                    aspect_ratio: tRatio
-                };
-
-                if (isVeoModel) {
-                  payload.enhance_prompt = true;
-                  payload.enable_upsample = true;
-                }
-
-                if (isGrokModel) {
-                   payload.size = '720P';
-                }
-
-                if (isJimengModel) {
-                    payload.duration = parseInt((modelDef!.options[tOptIdx] as any).s);
-                }
                 
                 if (isKlingModel) {
-                    // For other Kling models (like text2video or image2video)
-                    payload.duration = parseInt((modelDef!.options[tOptIdx] as any).s);
-                }
-
-                if ((isKlingModel || isGrokModel) && tSyncAudio) {
-                    payload.sync_audio = true;
-                }
-
-                response = await fetch(`${config.baseUrl}/v1/video/create`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-            } else {
-                const formData = new FormData();
-                formData.append('model', apiModelId);
-                formData.append('prompt', tPrompt);
-                
-                if (apiModelId === 'seedance-2.0') {
-                    formData.append('seconds', tSeedanceDuration.toString());
+                     // Determine correct polling type for generic Kling
+                     const endpoint = tRefs.length > 0 ? 'image2video' : 'text2video';
+                     startKlingVideoPolling(tid, pId, startTime, endpoint);
                 } else {
-                    formData.append('seconds', (modelDef!.options[tOptIdx] as any).s);
+                    startVideoPolling(tid, pId, startTime, apiModelId);
                 }
-                
-                formData.append('size', tRatio.replace(':', 'x'));
-                formData.append('watermark', 'false');
-                
-                if (tRefs && tRefs.length > 0) {
-                    for (let i = 0; i < tRefs.length; i++) {
-                         const img = tRefs[i];
-                         let blob: Blob | null = null;
-                         if (img.data.startsWith('http')) {
-                             blob = await urlToBlob(img.data);
-                         } else {
-                             blob = base64ToBlob(img.data, img.mimeType);
-                         }
-                         if (blob) formData.append('input_reference', blob, `图片 ${i+1}.png`);
-                    }
-                }
-
-                if (apiModelId === 'seedance-2.0') {
-                    if (tRefVideos && tRefVideos.length > 0) {
-                        for (let i = 0; i < tRefVideos.length; i++) {
-                             const vid = tRefVideos[i];
-                             let blob: Blob | null = null;
-                             if (vid.data.startsWith('http')) {
-                                 blob = await urlToBlob(vid.data);
-                             } else {
-                                 blob = base64ToBlob(vid.data, vid.mimeType);
-                             }
-                             if (blob) formData.append('input_reference', blob, `视频 ${i+1}.mp4`);
-                        }
-                    }
-                    if (tRefAudios && tRefAudios.length > 0) {
-                        for (let i = 0; i < tRefAudios.length; i++) {
-                             const aud = tRefAudios[i];
-                             let blob: Blob | null = null;
-                             if (aud.data.startsWith('http')) {
-                                 blob = await urlToBlob(aud.data);
-                             } else {
-                                 blob = base64ToBlob(aud.data, aud.mimeType);
-                             }
-                             if (blob) formData.append('input_reference', blob, `音频 ${i+1}.mp3`);
-                        }
-                    }
-                }
-
-                response = await fetch(`${config.baseUrl}/v1/videos`, { method: 'POST', headers: { 'Authorization': `Bearer ${key}` }, body: formData });
-            }
-            
-            const data = await response.json();
-            if (!response.ok || (data.code && data.code !== 0)) throw new Error(data.error?.message || data.message || "视频生成接口错误");
-            
-            const tid = data.id || data.data?.id || data.data?.task_id || data.task_id || data.taskId;
-            if (!tid) throw new Error("No Task ID returned");
-
-            const updatedAsset: any = { ...placeholders.find(x => x.id === pId), status: 'queued', taskId: tid };
-            setGeneratedAssets(prev => prev.map(a => a.id === pId ? updatedAsset : a));
-            saveAssetToDB(updatedAsset);
-            
-            if (isKlingModel) {
-                 // Determine correct polling type for generic Kling
-                 const endpoint = tRefs.length > 0 ? 'image2video' : 'text2video';
-                 startKlingVideoPolling(tid, pId, startTime, endpoint);
-            } else {
-                startVideoPolling(tid, pId, startTime, apiModelId);
+            } catch (err: any) {
+                console.error("createOne error:", err);
+                setGeneratedAssets(prev => prev.map(a => a.id === pId ? { ...a, status: 'failed', genTimeLabel: err.message || '生成失败' } : a));
+                setError(err.message || '生成失败');
             }
         };
+
         
         placeholders.forEach(p => createOne(p.id));
     } catch (err: any) { 
@@ -2657,7 +3339,42 @@ RoleName必须严格对应用户输入中的角色名。`;
 
     const tModelId = overrideConfig?.modelId ?? selectedModel;
     const tRatio = overrideConfig?.aspectRatio ?? aspectRatio;
-    const tSize = overrideConfig?.imageSize ?? imageSize;
+    let tSize = overrideConfig?.imageSize ?? imageSize;
+    const tQuality = overrideConfig?.imageQuality ?? imageQuality;
+    
+    if (tModelId === 'grok-4-image') {
+        if (tRatio === '1:1') tSize = '1080x1080';
+        else if (tRatio === '2:3') tSize = '784x1168';
+        else if (tRatio === '3:2') tSize = '1168x784';
+        else if (tRatio === '9:16') tSize = '1080x1980';
+        else if (tRatio === '16:9') tSize = '1980x1080';
+    } else if (tModelId === 'grok-imagine-image') {
+        if (tRatio === '1:1') tSize = '1024x1024';
+        else if (tRatio === '4:3') tSize = '1440x1080';
+        else if (tRatio === '9:16') tSize = '1080x1920';
+        else if (tRatio === '16:9') tSize = '1920x1080';
+    } else if (tModelId === 'doubao-seedream-5-0-260128') {
+        if (tSize === '2K') {
+            if (tRatio === '1:1') tSize = '2048x2048';
+            else if (tRatio === '4:3') tSize = '2304x1728';
+            else if (tRatio === '3:4') tSize = '1728x2304';
+            else if (tRatio === '16:9') tSize = '2848x1600';
+            else if (tRatio === '9:16') tSize = '1600x2848';
+            else if (tRatio === '3:2') tSize = '2496x1664';
+            else if (tRatio === '2:3') tSize = '1664x2496';
+            else if (tRatio === '21:9') tSize = '3136x1344';
+        } else if (tSize === '3K') {
+            if (tRatio === '1:1') tSize = '3072x3072';
+            else if (tRatio === '4:3') tSize = '3456x2592';
+            else if (tRatio === '3:4') tSize = '2592x3456';
+            else if (tRatio === '16:9') tSize = '4096x2304';
+            else if (tRatio === '9:16') tSize = '2304x4096';
+            else if (tRatio === '3:2') tSize = '3744x2496';
+            else if (tRatio === '2:3') tSize = '2496x3744';
+            else if (tRatio === '21:9') tSize = '4704x2016';
+        }
+    }
+    
     const tRefs = overrideConfig?.referenceImages ?? referenceImages;
     const tTransparent = overrideConfig?.isTransparent ?? isTransparent;
     const count = overrideConfig ? 1 : generationCount;
@@ -2670,11 +3387,12 @@ RoleName必须严格对应用户输入中的角色名。`;
             modelId: tModelId, modelName: MODELS.find(m => m.id === tModelId)?.name || tModelId,
             durationText: tSize, genTimeLabel: '生成中...',
             timestamp: startTime, status: 'loading',
-            config: { modelId: tModelId, aspectRatio: tRatio, imageSize: tSize, prompt: tPrompt, referenceImages: tRefs ? [...tRefs] : [], type: 'image', isTransparent: tTransparent }
+            config: { modelId: tModelId, aspectRatio: tRatio, imageSize: tSize, imageQuality: tQuality, prompt: tPrompt, referenceImages: tRefs ? [...tRefs] : [], type: 'image', isTransparent: tTransparent }
         });
     }
     setGeneratedAssets(prev => [...placeholders, ...prev]);
     setError(null);
+    scrollToGallery();
 
     // Specific handling for Kling Omni Image (Async)
     if (tModelId === 'kling-image-o1') {
@@ -2735,6 +3453,9 @@ RoleName必须严格对应用户输入中的角色名。`;
                     body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: tRatio, imageSize: tSize === 'AUTO' ? undefined : tSize } } })
                 });
                 const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(`Gemini API Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                }
                 const part = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData || p.inline_data);
                 if (part) { 
                     const d = part.inlineData || part.inline_data; 
@@ -2759,10 +3480,155 @@ RoleName必须严格对应用户输入中的角色名。`;
                         body: JSON.stringify(bodyPayload)
                     });
                     const data2 = await res2.json();
+                    if (!res2.ok || data2.error) {
+                        throw new Error(`Chat Completion Error: ${data2.error?.message || JSON.stringify(data2.error) || JSON.stringify(data2)}`);
+                    }
                     url = findImageUrlInObject(data2) || findImageUrlInObject(data2.choices?.[0]?.message?.content) || '';
                 }
+            } else if (tModelId === 'grok-imagine-image' && tRefs && tRefs.length > 0) {
+                const formData = new FormData();
+                formData.append('model', tModelId);
+                formData.append('prompt', tPrompt);
+                
+                const img = tRefs[0];
+                let blob: Blob;
+                if (img.data.startsWith('http')) {
+                    const imgRes = await fetch(img.data);
+                    blob = await imgRes.blob();
+                } else {
+                    const imgRes = await fetch(`data:${img.mimeType};base64,${img.data}`);
+                    blob = await imgRes.blob();
+                }
+                formData.append('image', blob, 'reference_image.png');
+
+                const res = await fetch(`${config.baseUrl}/v1/images/edits`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${key}` },
+                    body: formData
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(`Image Edit Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                }
+                url = findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '';
+            } else if ((tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2') && tRefs && tRefs.length > 0) {
+                // MiniMax Image Edit logic
+                const formData = new FormData();
+                formData.append('model', tModelId);
+                formData.append('prompt', tPrompt);
+                formData.append('n', '1');
+                
+                if (tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-all') {
+                    const targetSize = tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024');
+                    formData.append('size', targetSize);
+                    if (tModelId === 'gpt-image-2') {
+                        const targetQuality = tQuality || 'auto';
+                        formData.append('quality', targetQuality);
+                    }
+                } else {
+                    formData.append('size', tSize === 'AUTO' ? (tRatio === '3:2' ? '1536x1024' : tRatio === '2:3' ? '1024x1536' : '1024x1024') : tSize);
+                }
+                
+                // Add moderation parameter if supported
+                formData.append('safety_level', 'low');
+                formData.append('safety_setting', 'low');
+                formData.append('moderation', 'low');
+
+                // Assuming only the first image is used for standard edit if multiple are not supported as files
+                const img = tRefs[0];
+                let blob: Blob;
+                if (img.data.startsWith('http')) {
+                    const imgRes = await fetch(img.data);
+                    blob = await imgRes.blob();
+                } else {
+                    const b64 = img.data.includes(',') ? img.data.split(',')[1] : img.data;
+                    const byteCharacters = atob(b64);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    blob = new Blob([new Uint8Array(byteNumbers)], { type: img.mimeType });
+                }
+                formData.append('image', blob, 'image.png');
+
+                const res = await fetch(`${config.baseUrl}/v1/images/edits`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
+                    body: formData
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(`GPT-2 Edit Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                }
+                let b64 = data.data?.[0]?.b64_json;
+                if (b64) {
+                    url = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+                } else {
+                    url = findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '';
+                }
+            } else if (tModelId === 'gpt-image-2') {
+                const targetQuality = tQuality || 'auto';
+                const targetSize = tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024');
+
+                const bodyPayload: any = {
+                    model: tModelId,
+                    prompt: tPrompt,
+                    n: 1,
+                    quality: targetQuality,
+                    size: targetSize,
+                    safety_level: 'low',
+                    safety_setting: 'low',
+                    moderation: 'low'
+                };
+                
+                // removed tRefs logic here because it's handled by the /edits block above if tRefs exists
+                const res = await fetch(`${config.baseUrl}/v1/images/generations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
+                    body: JSON.stringify(bodyPayload)
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(`GPT-2 API Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                }
+                
+                let b64 = data.data?.[0]?.b64_json;
+                if (b64) {
+                    url = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+                } else {
+                    url = findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '';
+                }
+            } else if (tModelId === 'grok-imagine-image' || tModelId === 'doubao-seedream-5-0-260128' || tModelId === 'gpt-image-2-all') {
+                const bodyPayload: any = {
+                    model: tModelId,
+                    prompt: tPrompt,
+                    n: 1,
+                    size: tModelId === 'gpt-image-2-all'
+                          ? (tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024'))
+                          : (tSize === 'AUTO' ? undefined : tSize),
+                    response_format: 'url',
+                    safety_level: 'low',
+                    safety_setting: 'low',
+                    moderation: 'low'
+                };
+                if (tModelId === 'doubao-seedream-5-0-260128') {
+                    bodyPayload.aspect_ratio = tRatio;
+                }
+                if (tRefs && tRefs.length > 0 && tModelId !== 'gpt-image-2-all') {
+                    const images = tRefs.map((img: ReferenceImage) => img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`);
+                    bodyPayload.image = images.length === 1 ? images[0] : images;
+                }
+                const res = await fetch(`${config.baseUrl}/v1/images/generations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
+                    body: JSON.stringify(bodyPayload)
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(`API Error (${tModelId}): ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                }
+                url = findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '';
             } else {
-                const content: any[] = [{ type: "text", text: `${tPrompt} --aspect-ratio ${tRatio}` }];
+                const promptText = `${tPrompt} --aspect-ratio ${tRatio}`;
+                const content: any[] = [{ type: "text", text: promptText }];
                 if (tRefs && tRefs.length > 0) tRefs.forEach((img: ReferenceImage) => content.push({ type: "image_url", image_url: { url: img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}` } }));
                 
                 const bodyPayload: any = { 
@@ -2771,9 +3637,16 @@ RoleName必须严格对应用户输入中的角色名。`;
                     stream: false,
                     aspect_ratio: tRatio
                 };
-                if (tSize && tSize !== 'AUTO') { bodyPayload.size = tSize; bodyPayload.resolution = tSize; }
+                if (tModelId === 'grok-4-image') {
+                    delete bodyPayload.aspect_ratio;
+                    bodyPayload.size = tSize;
+                    bodyPayload.resolution = tSize;
+                } else if (tSize && tSize !== 'AUTO') { 
+                    bodyPayload.size = tSize; 
+                    bodyPayload.resolution = tSize; 
+                }
                 
-                if ((tModelId === 'gpt-image-1-all' || tModelId === 'gpt-image-1.5-all') && tTransparent) {
+                if ((tModelId === 'gpt-image-1.5-all') && tTransparent) {
                     bodyPayload.transparency = 'alpha';
                 }
 
@@ -2783,6 +3656,9 @@ RoleName必须严格对应用户输入中的角色名。`;
                     body: JSON.stringify(bodyPayload)
                 });
                 const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(`Fallback Chat Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                }
                 url = findImageUrlInObject(data) || findImageUrlInObject(data.choices?.[0]?.message?.content) || '';
             }
         } catch (e) {
@@ -2808,17 +3684,6 @@ RoleName必须严格对应用户输入中的角色名。`;
   };
 
   // ... (Asset deletion handlers remain same) ...
-  const handleAssetDelete = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    deleteAssetFromDB(id);
-    setGeneratedAssets(prev => prev.filter(a => a.id !== id));
-    setSelectedAssetIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-    });
-  };
-
   const handleContainerMouseDown = (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('[data-asset-card="true"]') || (e.target as HTMLElement).tagName === 'AUDIO') return;
       setIsSelecting(true);
@@ -2868,41 +3733,21 @@ RoleName必须严格对应用户输入中的角色名。`;
     const assets = generatedAssets.filter(a => selectedAssetIds.has(a.id) && a.url);
     if (assets.length === 0) return;
 
-    for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
+    const zip = new JSZip();
+    
+    for (const asset of assets) {
         try {
-            let downloadUrl = asset.url;
-            let shouldRevoke = false;
-
-            // Attempt to fetch as blob to bypass CORS/Content-Disposition issues
-            try {
-                const response = await fetch(asset.url);
-                const blob = await response.blob();
-                downloadUrl = window.URL.createObjectURL(blob);
-                shouldRevoke = true;
-            } catch (e) {
-                console.warn("Fetch failed, using original URL", e);
-            }
-
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = `viva-${asset.id}.${asset.type === 'video' ? 'mp4' : asset.type === 'audio' ? 'wav' : 'png'}`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            if (shouldRevoke) {
-                setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 5000);
-            }
+            const response = await fetch(asset.url);
+            const blob = await response.blob();
+            const extension = asset.type === 'video' ? 'mp4' : asset.type === 'audio' ? 'wav' : 'png';
+            zip.file(`viva-${asset.id}.${extension}`, blob);
         } catch (e) {
-            console.error("Download failed for", asset.id, e);
-        }
-
-        // Add delay to avoid browser blocking multiple downloads
-        if (i < assets.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            console.error("Failed to add asset to zip", asset.id, e);
         }
     }
+
+    const content = await zip.generateAsync({type:"blob"});
+    saveAs(content, "viva-assets.zip");
   };
 
   const handleAssetDownload = async (asset: GeneratedAsset, e: React.MouseEvent) => {
@@ -2951,6 +3796,7 @@ RoleName必须严格对应用户输入中的角色名。`;
            setSelectedModel(asset.config.modelId);
            setAspectRatio(asset.config.aspectRatio);
            setImageSize(asset.config.imageSize);
+           if (asset.config.imageQuality) setImageQuality(asset.config.imageQuality);
            setIsTransparent(asset.config.isTransparent || false);
            executeGeneration(asset.config);
         } else if (asset.type === 'audio') {
@@ -2958,7 +3804,6 @@ RoleName必须严格对应用户输入中的角色名。`;
            setSelectedAudioModel(asset.config.modelId);
            setSelectedVoice(asset.config.selectedVoice);
            if (asset.config.audioGenMode) {
-               setAudioGenMode(asset.config.audioGenMode);
                if (asset.config.audioGenMode === 'multi') {
                    const lines = parsePromptToLines(asset.config.prompt, asset.config.speakerMap || speakerMap);
                    setDialogueLines(lines);
@@ -3044,19 +3889,20 @@ RoleName必须严格对应用户输入中的角色名。`;
   const renderNavRail = () => (
       <div className="w-full md:w-20 bg-white border-b-2 md:border-b-0 border-black flex md:flex-col justify-between md:justify-start items-center z-30 shrink-0 overflow-x-auto md:overflow-visible">
           
-          <div className="hidden md:flex h-16 w-full items-center justify-center border-b-2 border-black bg-brand-yellow shrink-0">
+          <div className="hidden md:flex h-12 w-full items-center justify-end pr-3 border-b-2 border-black bg-brand-yellow shrink-0">
              <Bot className="w-10 h-10 text-black" strokeWidth={2} />
           </div>
 
           <div className="flex md:flex-col items-center gap-2 md:gap-4 w-full overflow-x-auto md:overflow-visible no-scrollbar px-4 md:px-0 py-4 md:py-6 md:flex-1 md:border-r-2 border-black">
               {[
                   { id: 'chat', icon: MessageSquare, label: '对话', action: () => { setMainCategory('chat'); resetInputState(); }, active: mainCategory === 'chat' },
-                  { id: 'image', icon: ImageIcon, label: '绘画', action: () => { setMainCategory('image'); resetInputState(); }, active: mainCategory === 'image' },
-                  { id: 'video', icon: Video, label: '视频', action: () => { setMainCategory('video'); resetInputState(); }, active: mainCategory === 'video' },
+                  { id: 'image', icon: ImageIcon, label: '绘画', action: () => { setMainCategory('image'); resetInputState({ keepImages: true }); }, active: mainCategory === 'image' },
+                  { id: 'video', icon: Video, label: '视频', action: () => { setMainCategory('video'); resetInputState({ keepImages: true }); }, active: mainCategory === 'video' },
                   { id: 'audio', icon: Mic, label: '语音', action: () => { setMainCategory('audio'); resetInputState(); }, active: mainCategory === 'audio' },
                   { id: 'resources', icon: FolderOpen, label: '资源', action: () => { setMainCategory('resources'); resetInputState(); }, active: mainCategory === 'resources' },
-
-                  { id: 'announcement', icon: Megaphone, label: '公告', action: () => { setMainCategory('announcement'); resetInputState(); }, active: mainCategory === 'announcement' },
+                  { id: 'proxy', icon: Shield, label: '代理', action: () => { setMainCategory('proxy'); resetInputState(); }, active: mainCategory === 'proxy' },
+                  { id: 'case', icon: BookOpen, label: '案例', action: () => { window.open(APP_CONFIG.CASE_URL, '_blank'); }, active: false },
+                  { id: 'save', icon: Save, label: '保存', action: handleSaveShortcut, active: false },
               ].map(item => (
                   <button 
                       key={item.id}
@@ -3067,8 +3913,8 @@ RoleName必须严格对应用户输入中的角色名。`;
                             : 'bg-transparent border-transparent hover:bg-slate-200'}`}
                       title={item.label}
                   >
-                      <item.icon className="w-7 h-7 transition-colors text-black" strokeWidth={2} />
-                      <span className="text-xs font-normal mt-1 transition-colors text-black">{item.label}</span>
+                      <item.icon className="w-8 h-8 transition-colors text-black" strokeWidth={1.5} />
+                      <span className="text-sm font-normal mt-0.5 transition-colors text-black">{item.label}</span>
                   </button>
               ))}
           </div>
@@ -3079,53 +3925,48 @@ RoleName必须严格对应用户输入中的角色名。`;
                 className="w-8 h-8 flex items-center justify-center border border-black bg-white hover:bg-brand-yellow transition-all rounded-full brutalist-shadow-sm hover:shadow-none"
                 title={isSidebarOpen ? "收起" : "展开"}
             >
-                {isSidebarOpen ? <ChevronLeft className="w-5 h-5"/> : <ChevronRight className="w-5 h-5"/>}
+                {isSidebarOpen ? <ChevronLeft className="w-5 h-5" strokeWidth={1.5}/> : <ChevronRight className="w-5 h-5" strokeWidth={1.5}/>}
             </button>
           </div>
       </div>
   );
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-[#F1F5F9] md:h-screen overflow-hidden text-black font-sans" 
+    <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 md:h-screen overflow-hidden text-black font-sans" 
          onMouseMove={handleContainerMouseMove} 
          onMouseUp={handleContainerMouseUp}>
       
       {renderNavRail()}
 
-      <div className={`bg-white flex flex-col z-20 brutalist-shadow transition-all duration-300 ${isFullWidthMode ? 'flex-1 w-full border-r-0' : (isSidebarOpen ? 'w-full md:w-[450px] border-r-2 border-black' : 'w-0 md:w-0 overflow-hidden border-r-0 opacity-0')}`}>
-        <header className="bg-brand-yellow pl-3 pr-5 border-b-2 border-black h-14 md:h-16 flex items-center justify-between transition-colors duration-300">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold italic tracking-tight text-black">极光漫影 AI助手</h1>
-            <button 
-                onClick={handleSaveShortcut} 
-                className="ml-2 w-8 h-8 flex items-center justify-center bg-white border border-black rounded-md hover:bg-black hover:text-white transition-all brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none" 
-                title="保存到桌面"
-            >
-                <Monitor className="w-4 h-4" />
-            </button>
-          </div>
-          {isFullWidthMode && (
-          <div className="flex items-center gap-2 md:gap-3">
-               <button onClick={() => setActiveModal('settings')} title="系统设置" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                    <Settings2 className="w-5 h-5 md:w-6 md:h-6"/>
+      <div className="flex-1 flex flex-col min-w-0 h-full relative">
+        {/* Shared Header */}
+        <header className="bg-brand-yellow pl-2 pr-5 border-b-2 border-black h-12 flex items-center justify-between z-30 shrink-0">
+           <div className="flex items-center gap-4">
+             <h1 className="text-2xl font-bold italic tracking-tight text-black">{APP_CONFIG.APP_NAME}</h1>
+           </div>
+           <div className="flex items-center gap-1 md:gap-2">
+                <button onClick={() => setActiveModal('settings')} title="系统设置" className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-black hover:text-brand-red transition-colors">
+                    <Settings className="w-7 h-7 md:w-8 md:h-8"/>
                 </button>
-                 <button onClick={() => setActiveModal('price')} title="价格说明" className="w-9 h-9 md:w-10 md:h-10 bg-brand-green border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                    <span className="text-xl font-bold text-white">¥</span>
+                <button onClick={() => setActiveModal('price')} title="价格说明" className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-black hover:text-brand-red transition-colors">
+                    <BadgeDollarSign className="w-7 h-7 md:w-8 md:h-8"/>
                 </button>
-                <button onClick={() => setActiveModal('links')} title="联系客服" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                    <Headset className="w-5 h-5 md:w-6 md:h-6"/>
+                <button onClick={() => setActiveModal('links')} title="联系客服" className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-black hover:text-brand-red transition-colors">
+                    <MessageCircleQuestion className="w-7 h-7 md:w-8 md:h-8"/>
                 </button>
-                <a href="https://api.jiguangmanying.xyz/console/log" target="_blank" title="使用日志" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                  <History className="w-5 h-5 md:w-6 md:h-6" />
+                <a href={`${APP_CONFIG.BASE_URL}/console/log`} target="_blank" title="使用日志" className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-black hover:text-brand-red transition-colors">
+                  <History className="w-7 h-7 md:w-8 md:h-8" />
                 </a>
-          </div>
-          )}
+           </div>
         </header>
-        
-        {/* Sidebar Content */}
-        {/* Conditionally render content based on mainCategory */}
-        {mainCategory === 'chat' ? (
-             <div className="flex-1 min-h-0 flex flex-col">
+
+        <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-y-auto md:overflow-hidden">
+           {/* Sidebar */}
+           <div className={`bg-white flex flex-col z-20 brutalist-shadow transition-all duration-300 shrink-0 ${isFullWidthMode ? 'flex-1 w-full border-r-0' : (isSidebarOpen ? 'w-full md:w-[450px] border-r-2 border-black min-h-[600px] md:min-h-0' : 'w-0 md:w-0 overflow-hidden border-r-0 opacity-0')}`}>
+             {/* Sidebar Content */}
+             {/* Conditionally render content based on mainCategory */}
+             {mainCategory === 'chat' ? (
+                  <div className="flex-1 min-h-0 flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <ChatView 
                     config={config} 
                     messages={chatMessages} 
@@ -3141,69 +3982,15 @@ RoleName必须严格对应用户输入中的角色名。`;
                     setModelId={setChatModelId}
                 />
              </div>
-        ) : mainCategory === 'announcement' ? (
-            <div className="flex-1 bg-[#F8FAFC] overflow-y-auto p-4 md:p-8 min-h-0">
-                <div className="max-w-5xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 fade-in duration-500">
-                    {/* Header */}
-                    <div className="bg-brand-yellow border-2 border-black p-6 md:p-10 brutalist-shadow relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                            <Megaphone className="w-32 h-32 rotate-[-15deg]" />
-                        </div>
-                        <div className="relative z-10 space-y-2">
-                            <div className="inline-flex items-center gap-2 bg-black text-white px-3 py-1 text-xs font-bold uppercase tracking-wider border border-transparent">
-                                <span className="w-2 h-2 rounded-full bg-brand-red animate-pulse"></span>
-                                Notice Board
-                            </div>
-                            <h2 className="text-4xl md:text-5xl font-black italic uppercase tracking-tighter">最新公告</h2>
-                            <p className="text-lg font-medium opacity-80">了解极光漫影的最新动态与功能更新</p>
-                        </div>
-                    </div>
-
-                    {/* Alert Box */}
-                    <div className="bg-white border-2 border-black p-6 brutalist-shadow-sm flex flex-col md:flex-row gap-4 items-start md:items-center relative overflow-hidden">
-                        <div className="shrink-0 bg-brand-red text-white p-3 border border-black">
-                            <AlertCircle className="w-6 h-6" />
-                        </div>
-                        <div className="space-y-1">
-                            <h3 className="font-bold text-lg text-brand-red uppercase">重要提示 / IMPORTANT</h3>
-                            <p className="text-sm text-slate-700 font-medium">首次使用前，请务必在设置中配置您的 <a href="https://api.jiguangmanying.xyz/console/token" target="_blank" className="bg-brand-yellow px-1 border border-black text-xs hover:opacity-80 transition-opacity">API令牌</a>，否则无法生成内容。</p>
-                        </div>
-                    </div>
-
-                    {/* Updates List */}
-                    <div className="bg-white border-2 border-black p-6 md:p-8 brutalist-shadow-sm space-y-6">
-                        <div className="flex items-center gap-3 border-b-2 border-black pb-4 mb-4">
-                            <Sparkles className="w-6 h-6 text-brand-yellow fill-black" />
-                            <h3 className="text-xl font-bold uppercase italic">版本更新日志</h3>
-                        </div>
-                        
-                        <div className="space-y-4">
-                             {[
-                               { title: "Grok Video 3 升级", desc: "新增15S生成时长，支持音频同步功能。" },
-                               { title: "语音功能优化", desc: "语音多人模式输入方式已优化，支持直观的剧本编辑。" }
-                            ].map((item, idx) => (
-                                 <div key={idx} className="group relative py-4 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors px-2">
-                                     <h4 className="font-bold text-base md:text-lg mb-2">{item.title}</h4>
-                                     <p className="text-sm md:text-base text-slate-600 leading-relaxed">{item.desc}</p>
-                                 </div>
-                             ))}
-                        </div>
-                        
-                        <div className="pt-6 mt-6 border-t border-dashed border-black/20 text-center">
-                            <span className="inline-block bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-xs font-medium uppercase tracking-widest">More updates coming soon</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
         ) : mainCategory === 'resources' ? (
-            <div className="flex-1 bg-[#F8FAFC] overflow-y-auto p-4 md:p-8 min-h-0">
+            <div className="flex-1 bg-slate-50 overflow-y-auto p-4 md:p-8 min-h-0">
                 <div className="max-w-5xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 fade-in duration-500">
                     {/* Header Hero */}
-                    <div className="bg-[#4ADE80] border-2 border-black p-8 md:p-12 brutalist-shadow text-white relative overflow-hidden group">
+                    <div className="bg-brand-blue border-2 border-black p-8 md:p-12 brutalist-shadow text-white relative overflow-hidden group">
                          <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-black/10 skew-x-[-20deg] translate-x-1/2 group-hover:translate-x-1/3 transition-transform duration-700"></div>
                          <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                             <div className="space-y-4">
-                                <div className="inline-flex items-center gap-2 bg-white text-[#4ADE80] border-2 border-black px-3 py-1 text-xs font-black uppercase tracking-wider">
+                                <div className="inline-flex items-center gap-2 bg-white text-brand-blue border-2 border-black px-3 py-1 text-xs font-black uppercase tracking-wider">
                                     <FolderOpen className="w-4 h-4 fill-current" />
                                     Useful Tools
                                 </div>
@@ -3240,6 +4027,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                                               item.icon === 'Monitor' ? <Monitor className="w-6 h-6" /> : 
                                               item.icon === 'Link' ? <Link className="w-6 h-6" /> :
                                               item.icon === 'Globe' ? <Globe className="w-6 h-6" /> :
+                                              item.icon === 'Eraser' ? <Eraser className="w-6 h-6" /> :
                                               <ImageIcon className="w-6 h-6" />}
                                          </div>
                                          <div className="flex items-center gap-3">
@@ -3259,9 +4047,78 @@ RoleName必须严格对应用户输入中的角色名。`;
                     </div>
                 </div>
             </div>
+        ) : mainCategory === 'proxy' ? (
+            <div className="flex-1 bg-slate-50 overflow-y-auto p-4 md:p-8 min-h-0">
+                <div className="max-w-5xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 fade-in duration-500">
+                    
+                    {/* Header Hero */}
+                    <div className="bg-brand-blue border-2 border-black p-8 md:p-12 brutalist-shadow text-white relative overflow-hidden group">
+                        <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-black/10 skew-x-[-20deg] translate-x-1/2 group-hover:translate-x-1/3 transition-transform duration-700"></div>
+                        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+                            <div className="space-y-4">
+                                <div className="inline-flex items-center gap-2 bg-white text-brand-blue border-2 border-black px-3 py-1 text-xs font-black uppercase tracking-wider">
+                                    <Shield className="w-4 h-4 fill-current" />
+                                    Partner Program
+                                </div>
+                                <h2 className="text-4xl md:text-6xl font-black italic uppercase tracking-tighter leading-[0.9]">
+                                    代理合作<br/><span className="text-brand-yellow text-stroke-black">Cooperation</span>
+                                </h2>
+                            </div>
+                            <div className="bg-black/20 p-4 border border-white/30 backdrop-blur-sm max-w-sm">
+                                <p className="text-sm font-medium leading-relaxed">
+                                    开启您的 AI 创业之旅。零门槛，高回报。
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Features Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="col-span-1 md:col-span-2 bg-black text-white p-4 border-2 border-black mb-4">
+                            <h3 className="text-xl font-bold uppercase italic tracking-wider flex items-center gap-2">
+                                <Zap className="w-6 h-6 text-brand-yellow fill-current" />
+                                核心优势 / Core Advantages
+                            </h3>
+                        </div>
+                        {[
+                            "提供超低的成本使用价，自用省米，运营赚米",
+                            "部署搭建同本AI大模型API主站一样的聚合API平台",
+                            "部署搭建同本AI助手一样的AI应用平台",
+                            "无需服务器、无需后续管理、只需提供一个域名",
+                            "最快一天部署上线，代理费达标后可全额返还",
+                            "2026弯道超车的机会，望君把握"
+                        ].map((text, i) => (
+                            <div key={i} className="group bg-white border-2 border-black p-5 transition-all duration-300 flex gap-4 items-start hover:-translate-y-1">
+                                <span className="shrink-0 w-8 h-8 flex items-center justify-center bg-brand-yellow border border-black font-black text-lg">
+                                    {i + 1}
+                                </span>
+                                <p className="font-bold text-sm md:text-base text-slate-800 pt-1">{text}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* CTA Section */}
+                    <a href={APP_CONFIG.AGENT_JOIN_URL} target="_blank" className="block group relative">
+                        <div className="relative bg-white border-2 border-black p-8 flex flex-col md:flex-row items-center justify-between gap-6 hover:-translate-y-1 transition-transform cursor-pointer">
+                            <div className="space-y-2">
+                                <h3 className="text-2xl font-black uppercase italic">立即加入代理计划</h3>
+                                <p className="text-slate-600 font-medium">查看详细招募文档，获取更多权益详情</p>
+                            </div>
+                            <div className="w-16 h-16 bg-brand-green border-2 border-black flex items-center justify-center rounded-full group-hover:rotate-45 transition-transform duration-300">
+                                <ExternalLink className="w-8 h-8 text-black" />
+                            </div>
+                        </div>
+                    </a>
+
+                </div>
+            </div>
         ) : (
         // ... (Main generation config panel code remains same) ...
-        <div className="flex-1 overflow-y-auto px-5 pb-5 pt-2 space-y-6 no-scrollbar">
+        <div 
+            className="flex-1 overflow-y-auto px-5 pb-5 pt-2 space-y-6 no-scrollbar animate-in fade-in slide-in-from-bottom-4 duration-500"
+            onDrop={handleDropMain}
+            onDragOver={handleDragOverMain}
+        >
           
           {!isAudioMode && (
           <section className="space-y-3">
@@ -3286,7 +4143,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                             </label>
                             {referenceImages.length > 0 ? (
                                 <div className="relative w-24 h-24 border border-black bg-white brutalist-shadow-sm flex-shrink-0 cursor-pointer"
-                                     onDoubleClick={() => setPreviewRefImage(referenceImages[0])}>
+                                     onClick={() => setPreviewRefImage(referenceImages[0])}>
                                     <img src={referenceImages[0].data.startsWith('http') ? referenceImages[0].data : `data:${referenceImages[0].mimeType};base64,${referenceImages[0].data}`} className="w-full h-full object-cover" />
                                     {referenceImages[0].uploadStatus === 'uploading' && (
                                         <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white z-20">
@@ -3421,7 +4278,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                                         {referenceImages.map((img: ReferenceImage, idx: number) => (
                                             <div key={img.id} 
                                                 className="relative w-24 h-24 border border-black bg-white brutalist-shadow-sm flex-shrink-0 cursor-pointer"
-                                                onDoubleClick={() => setPreviewRefImage(img)}>
+                                                onClick={() => setPreviewRefImage(img)}>
                                             <img src={img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`} className="w-full h-full object-cover" />
                                             <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] text-center uppercase py-0.5">
                                                 {(() => {
@@ -3440,7 +4297,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                                             </button>
                                             </div>
                                         ))}
-                                        {((!isVideoMode ? referenceImages.length < (currentImageModel?.maxImages || 4) : referenceImages.length < (selectedVideoModel === 'seedance-2.0' ? 9 : (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control' ? 1 : (selectedVideoModel.includes('components') ? 3 : (selectedVideoModel.startsWith('veo')) ? 2 : 1))))) && (
+                                        {((!isVideoMode ? referenceImages.length < (MODELS.find(m => m.id === selectedModel)?.maxReferenceImages ?? MODELS.find(m => m.id === selectedModel)?.maxImages ?? 4) : referenceImages.length < (selectedVideoModel === 'seedance-2.0' ? 9 : (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control' ? 1 : (selectedVideoModel.includes('components') ? 3 : (selectedVideoModel.startsWith('veo')) ? 2 : 1))))) && (
                                             <label className="w-24 h-24 border border-black flex items-center justify-center cursor-pointer bg-white brutalist-shadow-sm">
                                             <Plus className="w-6 h-6" /><input type="file" multiple={!isVideoMode || selectedVideoModel === 'seedance-2.0' || selectedVideoModel.startsWith('veo')} accept=".jpg, .jpeg, .png" className="hidden" onChange={handleImageUpload} />
                                             </label>
@@ -3524,7 +4381,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                                 </div>
                             )}
                             
-                            {isVideoMode && selectedVideoModel !== 'grok-video-3' && selectedVideoModel !== 'kling-avatar-image2video' && (
+                            {isVideoMode && selectedVideoModel !== 'grok-video-3' && selectedVideoModel !== 'grok-videos' && selectedVideoModel !== 'kling-avatar-image2video' && (
                                 <div className="text-xs text-brand-red font-normal mt-1">
                                     {(() => {
                                         if (selectedVideoModel === 'seedance-2.0') return '请勿上传真人，混合上传文件总数≤12个';
@@ -3569,7 +4426,7 @@ RoleName必须严格对应用户输入中的角色名。`;
           </section>
           )}
 
-          {!isChatMode && !isAnnouncementMode && !isProxyMode && !isResourcesMode && (
+          {!isChatMode && !isProxyMode && !isResourcesMode && (
           <section className="space-y-3">
              <SectionLabel 
                 text={isAudioMode ? "语音配置 / Voice Config" : "生成配置 / Generation Config"} 
@@ -3592,10 +4449,15 @@ RoleName必须严格对应用户输入中的角色名。`;
                   <select 
                     value={!isVideoMode && !isAudioMode ? selectedModel : (isAudioMode ? selectedAudioModel : selectedVideoModel)} 
                     onChange={(e) => {
-                        resetInputState();
-                        if (isAudioMode) setSelectedAudioModel(e.target.value);
-                        else if (!isVideoMode) setSelectedModel(e.target.value);
-                        else setSelectedVideoModel(e.target.value);
+                        setError(null);
+                        const newModelId = e.target.value;
+                        if (isAudioMode) {
+                            setSelectedAudioModel(newModelId);
+                        } else if (!isVideoMode) {
+                            setSelectedModel(newModelId);
+                        } else {
+                            setSelectedVideoModel(newModelId);
+                        }
                     }} 
                     className={selectClass}
                   >
@@ -3605,30 +4467,6 @@ RoleName必须严格对应用户输入中的角色名。`;
 
                 {isAudioMode && (
                     <div className="space-y-3 pt-2">
-                        <div className="flex bg-white border border-black brutalist-shadow-sm">
-                            <button 
-                                onClick={() => handleAudioModeChange('single')}
-                                className={`flex-1 py-1.5 text-xs font-normal uppercase transition-colors ${audioGenMode === 'single' ? 'bg-brand-yellow text-black' : 'hover:bg-slate-100'}`}
-                            >
-                                单人 (Single)
-                            </button>
-                            <div className="w-px bg-black"></div>
-                            <button 
-                                onClick={() => handleAudioModeChange('multi')}
-                                className={`flex-1 py-1.5 text-xs font-normal uppercase transition-colors ${audioGenMode === 'multi' ? 'bg-brand-yellow text-black' : 'hover:bg-slate-100'}`}
-                            >
-                                多人 (Multi)
-                            </button>
-                        </div>
-
-                        {audioGenMode === 'single' ? (
-                            <div className="space-y-1">
-                                <label className={labelClass}>声音角色 VOICE</label>
-                                <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className={selectClass}>
-                                    {VOICES.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                </select>
-                            </div>
-                        ) : (
                             <div className="space-y-2">
                                 <label className={labelClass}>角色配置 CHARACTERS</label>
                                 <div className="space-y-2">
@@ -3658,7 +4496,9 @@ RoleName必须严格对应用户输入中的角色名。`;
                                             <button 
                                                 onClick={() => {
                                                     if (speakerMap.length > 1) {
+                                                        const speakerToRemove = speakerMap[idx];
                                                         setSpeakerMap(speakerMap.filter((_, i) => i !== idx));
+                                                        setDialogueLines(dialogueLines.filter(line => line.speakerId !== speakerToRemove.id));
                                                     }
                                                 }}
                                                 className="bg-brand-red text-white p-1 border border-black hover:translate-y-0.5 hover:shadow-none transition-all"
@@ -3669,66 +4509,62 @@ RoleName必须严格对应用户输入中的角色名。`;
                                         </div>
                                     ))}
                                     <button 
-                                        onClick={() => setSpeakerMap([...speakerMap, { id: generateUUID(), name: `角色${String.fromCharCode(65 + speakerMap.length)}`, voice: VOICES[speakerMap.length % VOICES.length].id }])}
+                                        onClick={() => {
+                                            const newId = generateUUID();
+                                            const newSpeaker = { id: newId, name: `角色${String.fromCharCode(65 + speakerMap.length)}`, voice: VOICES[speakerMap.length % VOICES.length].id };
+                                            setSpeakerMap([...speakerMap, newSpeaker]);
+                                            setDialogueLines([...dialogueLines, { id: generateUUID(), speakerId: newId, text: '' }]);
+                                        }}
                                         className="w-full py-2 border border-dashed border-black bg-white hover:bg-slate-50 text-xs font-normal uppercase flex items-center justify-center gap-1"
                                     >
                                         <Plus className="w-3 h-3" /> 添加角色 (Add Speaker)
                                     </button>
                                 </div>
                             </div>
+                    </div>
+                )}
+
+                {!isVideoMode && !isAudioMode && (
+                    <div className={`grid ${currentImageModel?.supportedQualities ? 'grid-cols-3' : 'grid-cols-2'} gap-2.5`}>
+                        <div className="space-y-1">
+                            <label className={labelClass}>比例 ASPECT</label>
+                            <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className={selectClass}>
+                                {(currentImageModel)?.supportedAspectRatios.map(r => <option key={r} value={r}>{ASPECT_RATIO_LABELS[r] || r}</option>)}
+                            </select>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>{currentImageModel?.supportedQualities || currentImageModel?.id === 'gpt-image-2-all' ? '分辨率 SIZE' : '质量 QUALITY'}</label>
+                            <select value={imageSize} onChange={(e) => setImageSize(e.target.value)} className={selectClass}>
+                                {(() => {
+                                    const resolutions = currentImageModel?.supportedResolutions || [];
+                                    if (currentImageModel?.id === 'gpt-image-2' || currentImageModel?.id === 'gpt-image-2-all') {
+                                        const sizesForRatio = GPT2_SIZES[aspectRatio] || {};
+                                        return resolutions.map((res, idx) => (
+                                            <option key={idx} value={res} disabled={!sizesForRatio[res]}>
+                                                {res}{!sizesForRatio[res] ? ' (该比例不支持)' : ''}
+                                            </option>
+                                        ));
+                                    }
+                                    return resolutions.map((res, idx) => (
+                                        <option key={idx} value={res}>{res}</option>
+                                    ));
+                                })()}
+                            </select>
+                        </div>
+                        {currentImageModel?.supportedQualities && (
+                            <div className="space-y-1">
+                                <label className={labelClass}>画质 QUALITY</label>
+                                <select value={imageQuality} onChange={(e) => setImageQuality(e.target.value)} className={selectClass}>
+                                    {currentImageModel.supportedQualities.map(q => <option key={q} value={q}>{({ 'auto': 'AUTO 自动', 'low': 'LOW 省钱', 'medium': 'MEDIUM 平衡', 'high': 'HIGH 最强' } as Record<string, string>)[q] || q.toUpperCase()}</option>)}
+                                </select>
+                            </div>
                         )}
                     </div>
                 )}
 
-                {isVideoMode && selectedVideoModel !== 'kling-avatar-image2video' && selectedVideoModel !== 'kling-motion-control' && (selectedVideoModel.startsWith('kling') || selectedVideoModel.startsWith('grok')) && (
-                    <div className="space-y-1 mt-2">
-                       <label className="flex items-center gap-2 cursor-pointer bg-white border border-black p-2 brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                           <input type="checkbox" checked={isSyncAudio} onChange={(e) => setIsSyncAudio(e.target.checked)} className="w-4 h-4 accent-black" />
-                           <span className="text-xs font-normal uppercase flex items-center gap-1"><Mic className="w-3 h-3"/> 音画同步 / AUDIO SYNC</span>
-                       </label>
-                    </div>
-                )}
-
-                {!isVideoMode && !isAudioMode && currentImageModel && (
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="space-y-1">
-                      <label className={labelClass}>比例 ASPECT</label>
-                      <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className={selectClass}>
-                        {currentImageModel.supportedAspectRatios.map(r => <option key={r} value={r}>{ASPECT_RATIO_LABELS[r] || r}</option>)}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className={labelClass}>分辨率 QUALITY</label>
-                      <select value={imageSize} onChange={(e) => setImageSize(e.target.value)} className={selectClass}>
-                        {currentImageModel.supportedResolutions.map(res => <option key={res} value={res}>{res}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
                 {isVideoMode && (
                     <>
-                        {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') ? (
-                            <div className="space-y-1">
-                                <label className={labelClass}>模式 MODE</label>
-                                <select 
-                                    value={videoOptionIdx} 
-                                    onChange={(e) => setVideoOptionIdx(parseInt(e.target.value))} 
-                                    className={`${selectClass} h-[40px]`}
-                                >
-                                    {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') ? (
-                                        <>
-                                            <option value={0}>标准模式</option>
-                                            <option value={1}>高品质模式</option>
-                                        </>
-                                    ) : (
-                                        currentVideoModel?.options.map((opt, idx) => (
-                                            <option key={idx} value={idx}>{opt.q === '高品质模式' ? 'PRO (高品质)' : 'STD (标准)'}</option>
-                                        ))
-                                    )}
-                                </select>
-                            </div>
-                        ) : selectedVideoModel === 'seedance-2.0' ? (
+                        {selectedVideoModel === 'kling-motion-control' ? (
                             <div className="grid grid-cols-2 gap-2.5">
                                 <div className="space-y-1">
                                     <label className={labelClass}>比例 ASPECT</label>
@@ -3769,7 +4605,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                                         </>
                                     ) : (
                                         currentVideoModel?.options.map((opt, idx) => (
-                                            <option key={idx} value={idx} disabled={isSyncAudio && opt.q === '标准模式'}>
+                                            <option key={idx} value={idx} disabled={(isSyncAudio && opt.q === '标准模式') || (opt as any).disabled}>
                                                 {(opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S'} ({opt.q})
                                             </option>
                                         ))
@@ -3805,7 +4641,7 @@ RoleName必须严格对应用户输入中的角色名。`;
 
                 <div className="space-y-1">
                   {/* Red Instruction Text for GPT Models */}
-                  {(!isVideoMode && !isAudioMode && (selectedModel === 'gpt-image-1-all' || selectedModel === 'gpt-image-1.5-all')) && (
+                  {(!isVideoMode && !isAudioMode && selectedModel === 'gpt-image-1.5-all') && (
                       <div className="text-xs text-brand-red font-normal mb-1">
                           提示词输入透明背景可生成透明背景图片
                       </div>
@@ -3816,31 +4652,28 @@ RoleName必须严格对应用户输入中的角色名。`;
                   </div>
                   
                   {/* Updated Toolbar matching the provided image style */}
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    <button onClick={optimizePrompt} disabled={isOptimizing} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#F7CE00] text-black border border-black font-normal text-xs brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all uppercase whitespace-nowrap">
-                      {isOptimizing ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <><Wand2 className="w-3.5 h-3.5"/> AI</>}
+                  {!isAudioMode && (
+                  <div className="flex flex-row gap-1.5 mb-2 overflow-x-auto no-scrollbar">
+                    <button onClick={optimizePrompt} disabled={isOptimizing} className="flex-1 flex items-center justify-center py-2 bg-white text-black border border-black brutalist-shadow-sm hover:bg-brand-yellow transition-all min-w-0" title="AI优化">
+                      {isOptimizing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Wand2 className="w-4 h-4"/>}
                     </button>
-                    {!isAudioMode && (
-                        <button onClick={() => { setTempSelectedStyles([]); setActiveModal('styles'); }} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#3B82F6] text-white border border-black font-normal text-xs brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all uppercase whitespace-nowrap">
-                        <Palette className="w-3.5 h-3.5"/> 风格镜头
-                        </button>
-                    )}
-                    <button onClick={() => setActiveModal('library')} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#A855F7] text-white border border-black font-normal text-xs brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all uppercase whitespace-nowrap">
-                      <Bookmark className="w-3.5 h-3.5"/> 词库
+                    <button onClick={() => { setTempSelectedStyles([]); setActiveModal('styles'); }} className="flex-1 flex items-center justify-center py-2 bg-white text-black border border-black brutalist-shadow-sm hover:bg-brand-yellow transition-all min-w-0" title="风格镜头">
+                        <Palette className="w-4 h-4"/>
                     </button>
-                    
-                    <div className="flex gap-2 ml-auto">
-                      <button onClick={handleOpenSaveModal} disabled={!prompt.trim()} className="w-9 h-9 flex items-center justify-center bg-[#F472B6] text-white border border-black font-normal text-xs brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all disabled:opacity-50 disabled:grayscale disabled:hover:translate-y-0 disabled:hover:shadow-sm" title="保存">
-                        <Save className="w-4 h-4"/>
-                      </button>
-                      <button onClick={() => setActiveModal('edit-prompt')} className="w-9 h-9 flex items-center justify-center bg-[#4ADE80] text-black border border-black font-normal text-xs brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all" title="展开">
-                        <Maximize2 className="w-4 h-4"/>
-                      </button>
-                      <button onClick={() => { setPrompt(''); setDialogueLines([]); }} className="w-9 h-9 flex items-center justify-center bg-white text-black border border-black font-normal text-xs brutalist-shadow-sm hover:bg-brand-red hover:text-white hover:translate-y-0.5 hover:shadow-none transition-all" title="清空">
-                        <Trash2 className="w-4 h-4"/>
-                      </button>
-                    </div>
+                    <button onClick={() => setActiveModal('library')} className="flex-1 flex items-center justify-center py-2 bg-white text-black border border-black brutalist-shadow-sm hover:bg-brand-yellow transition-all min-w-0" title="词库">
+                      <Bookmark className="w-4 h-4"/>
+                    </button>
+                    <button onClick={handleOpenSaveModal} disabled={!prompt.trim()} className="flex-1 flex items-center justify-center py-2 bg-white text-black border border-black brutalist-shadow-sm hover:bg-brand-yellow transition-all disabled:opacity-50 disabled:grayscale min-w-0" title="保存">
+                      <Save className="w-4 h-4"/>
+                    </button>
+                    <button onClick={() => setActiveModal('edit-prompt')} className="flex-1 flex items-center justify-center py-2 bg-white text-black border border-black brutalist-shadow-sm hover:bg-brand-yellow transition-all min-w-0" title="展开">
+                      <Maximize2 className="w-4 h-4"/>
+                    </button>
+                    <button onClick={() => { setPrompt(''); setDialogueLines([]); }} className="flex-1 flex items-center justify-center py-2 bg-white text-black border border-black brutalist-shadow-sm hover:bg-brand-red hover:text-white transition-all min-w-0" title="清空">
+                      <Trash2 className="w-4 h-4"/>
+                    </button>
                   </div>
+                  )}
 
                   {isVideoMode && selectedVideoModel === 'kling-avatar-image2video' && (
                         <div className="mb-2 text-xs text-brand-red font-normal italic">
@@ -3854,15 +4687,15 @@ RoleName必须严格对应用户输入中的角色名。`;
                   )}
 
                   {isAudioMode && (
-                       <div className="mb-2 text-xs text-brand-red font-normal">您可以使用自然语言来控制风格、语气、口音和节奏。也可点击AI一键生成</div>
+                       <div className="mb-2 text-xs text-brand-red font-normal">您可以使用自然语言来控制风格、语气、口音和节奏。也可AI生成</div>
                   )}
 
                   <div className="relative group">
-                      {isAudioMode && audioGenMode === 'multi' ? (
-                          <div className="flex flex-col gap-2 h-48 overflow-y-auto border border-black bg-slate-50 p-2">
+                      {isAudioMode ? (
+                          <div className="flex flex-col gap-4 overflow-y-auto max-h-[500px] no-scrollbar">
                              {dialogueLines.map((line, idx) => (
-                                 <div key={line.id} className="bg-white border border-black p-2 shadow-sm flex flex-col gap-2 animate-in slide-in-from-bottom-2 fade-in">
-                                    <div className="flex justify-between items-center bg-brand-cream border-b border-black/10 pb-1 mb-1 px-1">
+                                 <div key={line.id} className="flex flex-col gap-1 animate-in slide-in-from-bottom-2 fade-in">
+                                    <div className="flex justify-between items-center px-1">
                                         <select 
                                             value={line.speakerId} 
                                             onChange={e => {
@@ -3870,40 +4703,35 @@ RoleName必须严格对应用户输入中的角色名。`;
                                                 newLines[idx].speakerId = e.target.value;
                                                 setDialogueLines(newLines);
                                             }}
-                                            className="text-xs font-bold bg-transparent outline-none w-32 truncate"
+                                            className="text-xs font-normal bg-transparent outline-none w-32 truncate"
                                         >
                                             {speakerMap.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                         </select>
-                                        <div className="flex gap-1 items-center">
-                                           <button 
-                                                onClick={() => {
-                                                    if (idx === 0) return;
-                                                    const newLines = [...dialogueLines];
-                                                    [newLines[idx - 1], newLines[idx]] = [newLines[idx], newLines[idx - 1]];
-                                                    setDialogueLines(newLines);
-                                                }}
-                                                disabled={idx === 0}
-                                                className="p-1 text-slate-400 hover:text-black disabled:opacity-30"
+                                        <div className="flex gap-2 items-center">
+                                            <button 
+                                                onClick={() => optimizeLine(line.id)}
+                                                disabled={optimizingLineId === line.id}
+                                                className="p-1 text-brand-red hover:scale-110 transition-transform disabled:opacity-50"
+                                                title="AI润色"
                                             >
-                                                <ArrowUp className="w-3 h-3"/>
+                                                {optimizingLineId === line.id ? <Loader2 className="w-4 h-4 animate-spin"/> : <Wand2 className="w-4 h-4"/>}
                                             </button>
-                                           <button 
+                                            <button 
                                                 onClick={() => {
-                                                    if (idx === dialogueLines.length - 1) return;
-                                                    const newLines = [...dialogueLines];
-                                                    [newLines[idx + 1], newLines[idx]] = [newLines[idx], newLines[idx + 1]];
-                                                    setDialogueLines(newLines);
+                                                    setEditingLineId(line.id);
+                                                    setActiveModal('edit-line');
                                                 }}
-                                                disabled={idx === dialogueLines.length - 1}
-                                                className="p-1 text-slate-400 hover:text-black disabled:opacity-30"
+                                                className="p-1 text-brand-red hover:scale-110 transition-transform"
+                                                title="展开"
                                             >
-                                                <ArrowDown className="w-3 h-3"/>
+                                                <Maximize2 className="w-4 h-4"/>
                                             </button>
-                                           <button 
+                                            <button 
                                                 onClick={() => setDialogueLines(dialogueLines.filter(l => l.id !== line.id))}
-                                                className="text-slate-400 hover:text-red-500 p-1 transition-colors"
+                                                className="p-1 text-brand-red hover:scale-110 transition-transform"
+                                                title="删除"
                                             >
-                                                <Trash2 className="w-3 h-3"/>
+                                                <Trash2 className="w-4 h-4"/>
                                             </button>
                                         </div>
                                     </div>
@@ -3914,7 +4742,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                                             newLines[idx].text = e.target.value;
                                             setDialogueLines(newLines);
                                         }}
-                                        className="w-full h-12 p-1 text-sm outline-none resize-none bg-transparent font-normal" 
+                                        className="w-full h-40 p-3 border border-black font-normal text-base bg-white focus:outline-none brutalist-input resize-y leading-relaxed" 
                                         placeholder="输入台词..." 
                                     />
                                  </div>
@@ -3924,23 +4752,13 @@ RoleName必须严格对应用户输入中的角色名。`;
                                      点击下方按钮添加对话
                                  </div>
                              )}
-                             <div className="flex gap-2 flex-wrap pt-2 mt-auto">
-                                 {speakerMap.map(s => (
-                                    <button 
-                                        key={s.id}
-                                        onClick={() => setDialogueLines([...dialogueLines, { id: generateUUID(), speakerId: s.id, text: '' }])}
-                                        className="flex items-center gap-1 px-3 py-1.5 bg-white border border-black text-xs font-bold uppercase hover:bg-brand-yellow transition-colors brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none"
-                                    >
-                                        <Plus className="w-3 h-3"/> {s.name} 说...
-                                    </button>
-                                 ))}
-                             </div>
+                             {/* Dialogue lines bottom buttons removed per user request */}
                           </div>
                       ) : (
                           <textarea 
                               value={prompt} 
                               onChange={(e) => setPrompt(e.target.value)} 
-                              placeholder={isAudioMode ? (audioGenMode === 'single' ? "阴森低语地说：指尖阵阵刺痛……我想定是那邪祟，正悄然近矣。" : "") : "描述您的创作奇想..."} 
+                              placeholder={isAudioMode ? "" : "描述您的创作奇想..."} 
                               className="w-full h-48 p-3 border border-black font-normal text-base bg-white focus:outline-none brutalist-input resize-y leading-relaxed" 
                           />
                       )}
@@ -3957,12 +4775,15 @@ RoleName必须严格对应用户输入中的角色名。`;
           )}
 
           <div className="space-y-3">
-            {!isChatMode && !isAnnouncementMode && !isProxyMode && !isResourcesMode && (
+            {error && <div className="bg-white border-2 border-brand-red p-3 text-brand-red font-normal text-[11px] brutalist-shadow-sm">ERROR: {error}</div>}
+            
+            {!isChatMode && !isProxyMode && !isResourcesMode && (
               <>
                 <button onClick={() => executeGeneration()} className="w-full py-3 bg-brand-red text-white text-xl font-normal border border-black brutalist-shadow hover:translate-y-1.5 hover:shadow-none transition-all uppercase tracking-tighter">
                   开始创作/Start Creating
                 </button>
-                
+
+                {!isAudioMode && (
                 <div className="bg-white border border-black p-4 brutalist-shadow-sm space-y-1.5">
                   <div className="flex items-center gap-2 mb-1">
                     <AlertCircle className="w-4 h-4 text-brand-red" />
@@ -3974,98 +4795,92 @@ RoleName必须严格对应用户输入中的角色名。`;
                     <p className="text-sm font-normal leading-tight text-slate-700">3、欢迎提供优化建议。</p>
                   </div>
                 </div>
+                )}
               </>
             )}
           </div>
-          
-          {error && <div className="bg-white border-2 border-brand-red p-3 text-brand-red font-normal text-[11px] brutalist-shadow-sm">ERROR: {error}</div>}
         </div>
         )}
       </div>
 
+      {/* Gallery */}
       {!isFullWidthMode && (
-      <div ref={galleryRef} className="flex-1 flex flex-col relative h-full overflow-hidden" onMouseDown={handleContainerMouseDown}>
-        {/* ... (Existing JSX for gallery header and items remains the same) */}
-        <div className="bg-brand-yellow border-b-2 border-black px-6 h-14 md:h-16 flex justify-between items-center z-10 shrink-0">
-          <div className="flex items-center gap-4">
+      <div ref={galleryRef} className="flex-1 flex flex-col relative min-h-[500px] md:h-full md:overflow-hidden select-none" onMouseDown={handleContainerMouseDown}>
+        <div className="py-2 px-6 flex items-center shrink-0 overflow-hidden gap-4">
+           <div className="flex items-center gap-2">
+             <button onClick={handleSelectAll} className="flex-shrink-0 flex items-center gap-2 border border-black px-3 py-1.5 text-xs font-normal brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all bg-white uppercase">
+                {selectedAssetIds.size === generatedAssets.length && generatedAssets.length > 0 ? <CheckSquare className="w-4 h-4"/> : <Square className="w-4 h-4"/>} 全选
+              </button>
+
               {selectedAssetIds.size > 0 && (
-                <div className="flex gap-2 mr-4">
-                  <button onClick={handleBatchDownload} className="bg-brand-blue text-white border border-black px-4 py-2 text-xs font-normal brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none uppercase">下载 ({selectedAssetIds.size})</button>
-                  <button onClick={() => { selectedAssetIds.forEach(id => { deleteAssetFromDB(id); setGeneratedAssets(prev => prev.filter(a => a.id !== id)); }); setSelectedAssetIds(new Set()); }} className="bg-brand-red text-white border border-black px-4 py-2 text-xs font-normal brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none uppercase">删除 ({selectedAssetIds.size})</button>
+                <div className="flex gap-2 animate-in fade-in slide-in-from-left-2">
+                  <button 
+                    onClick={handleBatchDownload} 
+                    className="flex-shrink-0 flex items-center gap-2 border border-black px-3 py-1.5 text-xs font-normal brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all bg-brand-blue text-white uppercase"
+                  >
+                    <Download className="w-4 h-4"/> 下载 ({selectedAssetIds.size})
+                  </button>
+                  <button 
+                    onClick={() => { 
+                      selectedAssetIds.forEach(id => { deleteAssetFromDB(id); setGeneratedAssets(prev => prev.filter(a => a.id !== id)); }); 
+                      setSelectedAssetIds(new Set()); 
+                    }} 
+                    className="flex-shrink-0 flex items-center gap-2 border border-black px-3 py-1.5 text-xs font-normal brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all bg-brand-red text-white uppercase"
+                  >
+                    <Trash2 className="w-4 h-4"/> 删除 ({selectedAssetIds.size})
+                  </button>
                 </div>
               )}
-          </div>
-          <div className="flex items-center gap-2 md:gap-3">
-               <button onClick={() => setActiveModal('settings')} title="系统设置" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                    <Settings2 className="w-5 h-5 md:w-6 md:h-6"/>
-                </button>
-                 <button onClick={() => setActiveModal('price')} title="价格说明" className="w-9 h-9 md:w-10 md:h-10 bg-brand-green border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                    <span className="text-xl font-bold text-white">¥</span>
-                </button>
-                <button onClick={() => setActiveModal('links')} title="联系客服" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                    <Headset className="w-5 h-5 md:w-6 md:h-6"/>
-                </button>
-                <a href="https://api.jiguangmanying.xyz/console/log" target="_blank" title="使用日志" className="w-9 h-9 md:w-10 md:h-10 bg-white border border-black flex items-center justify-center brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all">
-                  <History className="w-5 h-5 md:w-6 md:h-6" />
-                </a>
-          </div>
-        </div>
-
-        <div className="py-2 px-6 flex items-center shrink-0 overflow-hidden gap-4">
-           <button onClick={handleSelectAll} className="flex-shrink-0 flex items-center gap-2 border border-black px-3 py-1.5 text-xs font-normal brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all bg-white uppercase">
-              {selectedAssetIds.size === generatedAssets.length && generatedAssets.length > 0 ? <CheckSquare className="w-4 h-4"/> : <Square className="w-4 h-4"/>} 全选
-            </button>
-           
-           <button 
-              onClick={() => setIsMarqueeVisible(!isMarqueeVisible)} 
-              className="flex-shrink-0 flex items-center justify-center border border-black px-2 py-1.5 text-xs font-normal brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all bg-white uppercase"
-              title={isMarqueeVisible ? "关闭滚动公告" : "显示滚动公告"}
-           >
-              {isMarqueeVisible ? <MegaphoneOff className="w-4 h-4"/> : <Megaphone className="w-4 h-4"/>}
-           </button>
-
-           {isMarqueeVisible && (
-           <div className="flex-1 overflow-hidden">
-             <div className="animate-marquee whitespace-nowrap flex items-center gap-8">
-               <span className="text-base font-medium text-brand-red flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5" />
-                  本应用资产仅存储于用户本地浏览器中，请及时下载保存。
-               </span>
-               <span className="text-base font-medium text-brand-red flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5" />
-                  生成内容时请勿刷新页面，否则容易中断。
-               </span>
-               <span className="text-base font-medium text-brand-red flex items-center gap-2">
-                  <Megaphone className="w-5 h-5" />
-                  使用sora-2模型，请确保令牌分组包含sora-vip，但依旧不保证成功率
-               </span>
-               <span className="text-base font-medium text-brand-red flex items-center gap-2">
-                  <RefreshCw className="w-5 h-5" />
-                  如遇模型不能使用，优先尝试切换API令牌分组。
-               </span>
-             </div>
            </div>
-           )}
+            
+            <div className="flex-1 flex items-center overflow-hidden relative h-[34px] gap-2">
+                {showAnnouncement ? (
+                    <>
+                        <button 
+                            onClick={() => setShowAnnouncement(false)} 
+                            className="text-black hover:text-brand-red transition-colors shrink-0"
+                            title="关闭公告"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                        <div className="overflow-hidden whitespace-nowrap w-full relative">
+                            <div className="inline-block animate-marquee text-black text-sm font-normal">
+                                公告：1、本应用不储存用户资产，请及时下载；2、生成失败请重新生成，扣费自动返还；3、如遇连续失败，请暂时切换分组或者切换其它模型使用；4、欢迎联系客服提供优化建议。
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <button 
+                        onClick={() => setShowAnnouncement(true)} 
+                        className="text-black hover:text-brand-red transition-colors shrink-0"
+                        title="展开公告"
+                    >
+                        <Bell className="w-4 h-4" />
+                    </button>
+                )}
+            </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 pt-2 pb-6 no-scrollbar">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3 md:gap-5">
             {generatedAssets.map((asset) => (
               <div key={asset.id} 
                    data-asset-id={asset.id} 
                    data-asset-card="true" 
                    onClick={(e) => toggleAssetSelection(asset.id, e)}
-                   className={`group bg-white border-2 border-black brutalist-shadow transition-all hover:-translate-y-1 cursor-pointer relative ${selectedAssetIds.has(asset.id) ? 'border-brand-blue ring-4 ring-brand-blue/30' : ''}`}>
+                   className={`group bg-white border-2 border-black brutalist-shadow transition-all hover:-translate-y-1 cursor-pointer relative ${selectedAssetIds.has(asset.id) ? 'border-brand-blue border-4 ring-0' : ''}`}>
+                 <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteAssetFromDB(asset.id);
+                      setGeneratedAssets(prev => prev.filter(a => a.id !== asset.id));
+                    }}
+                    className="absolute top-2 right-2 z-50 bg-white border border-black p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-100"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 
-                <button 
-                  onClick={(e) => handleAssetDelete(asset.id, e)} 
-                  className="absolute top-2 right-2 bg-brand-red text-white p-2 border border-black brutalist-shadow-sm hover:translate-y-0.5 hover:shadow-none transition-all z-40"
-                  title="删除此内容"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-
-                <div className="aspect-square bg-slate-100 border-b-2 border-black relative overflow-hidden">
+                 <div className="aspect-square bg-slate-100 border-b-2 border-black relative overflow-hidden">
                   {(asset.status === 'loading' || asset.status === 'queued' || asset.status === 'processing') ? (
                      <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-slate-50 relative">
                         <div className="flex flex-col items-center animate-pulse">
@@ -4074,7 +4889,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                         </div>
                         {asset.type === 'video' && (
                             <a 
-                                href="https://api.jiguangmanying.xyz/console/task" 
+                                href={`${APP_CONFIG.BASE_URL}/console/task`} 
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
@@ -4085,60 +4900,89 @@ RoleName必须严格对应用户输入中的角色名。`;
                         )}
                      </div>
                   ) : asset.status === 'failed' ? (
-                     <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-[#f8fafc]">
-                        <Frown className="w-16 h-16 text-[#808080] mb-3" strokeWidth={1.5} />
-                        <span className="font-normal text-sm text-[#808080] tracking-wide">生成失败</span>
+                     <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-slate-50">
+                        <Frown className="w-16 h-16 text-gray-500 mb-3" strokeWidth={1.5} />
+                        <span className="font-bold text-sm text-black tracking-wide">生成失败</span>
+                        <span className="font-normal text-xs text-gray-500 px-4 text-center mt-2">{asset.genTimeLabel}</span>
                      </div>
                   ) : asset.type === 'image' ? (
-                    <img src={asset.url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <img src={asset.url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onClick={(e) => { if (selectedAssetIds.size === 0) { e.stopPropagation(); setPreviewAsset(asset); } }} />
                   ) : asset.type === 'video' ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center relative">
+                    <div className="w-full h-full flex flex-col items-center justify-center relative" onClick={(e) => { if (selectedAssetIds.size === 0) { e.stopPropagation(); setPreviewAsset(asset); } }}>
                       {asset.status === 'completed' ? <video src={asset.url} className="w-full h-full object-cover" muted loop autoPlay /> : <Loader2 className="w-12 h-12 animate-spin text-brand-red" />}
                     </div>
                   ) : (
                     // Audio Card Content
-                    <div className="w-full h-full flex flex-col items-center justify-center relative bg-[#E0E7FF] p-6">
-                        {asset.coverUrl ? (
-                            <img src={asset.coverUrl} className="absolute inset-0 w-full h-full object-cover opacity-50 blur-[2px]" />
-                        ) : null}
-                        <div className={`w-20 h-20 bg-brand-purple border-2 border-black rounded-full flex items-center justify-center brutalist-shadow mb-4 relative z-10 overflow-hidden`}>
-                             {asset.coverUrl ? <img src={asset.coverUrl} className="w-full h-full object-cover" /> : <AudioLines className="w-10 h-10 text-white" />}
-                        </div>
-                        <audio src={asset.url} controls className="w-full h-8 mt-2 relative z-10" />
-                    </div>
+                    <BrutalistAudioPlayer src={asset.url} coverUrl={asset.coverUrl} />
                   )}
                   <div className={`absolute top-3 left-3 ${asset.status === 'failed' ? 'bg-black text-white' : asset.type === 'video' ? 'bg-brand-red text-white' : asset.type === 'audio' ? 'bg-brand-purple text-white' : 'bg-brand-yellow'} border border-black px-2 py-0.5 font-normal text-xs uppercase z-10`}>{asset.type}</div>
-                  {asset.status === 'completed' && asset.type !== 'audio' && (
-                    <div className="absolute inset-0 bg-brand-yellow/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3 z-20">
-                        <button onClick={(e) => { e.stopPropagation(); setPreviewAsset(asset); }} className="p-3 bg-white border border-black brutalist-shadow-sm hover:translate-y-1 hover:shadow-none"><Maximize2 className="w-6 h-6"/></button>
-                        <button onClick={(e) => handleAssetDownload(asset, e)} className="p-3 bg-white border border-black brutalist-shadow-sm hover:translate-y-1 hover:shadow-none"><Download className="w-6 h-6"/></button>
-                    </div>
-                  )}
                 </div>
                 <div className="p-4 bg-white space-y-3">
                   <div className="flex justify-between items-center mb-1 border-b border-gray-100 pb-2">
                     <span className="font-bold text-xs text-black uppercase truncate max-w-[65%]" title={asset.modelName}>
                       {asset.modelName}
                     </span>
-                    <span className="font-bold text-xs text-black uppercase">
-                       {asset.config?.aspectRatio || asset.config?.videoRatio || 'AUTO'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                       <span className={`font-bold text-xs ${asset.status === 'completed' ? 'text-green-600' : 'text-gray-500'} uppercase tracking-tighter`}>
+                          {(asset.status === 'loading' || asset.status === 'queued' || asset.status === 'processing') ? <LiveTimer startTime={asset.timestamp} /> : (asset.status === 'failed' ? '' : asset.genTimeLabel)}
+                       </span>
+                       <span className="font-bold text-xs pl-2 border-l border-black text-black text-right uppercase">
+                          {asset.config?.aspectRatio || asset.config?.videoRatio || 'AUTO'}
+                       </span>
+                    </div>
                   </div>
                   
-                  <div className="relative group/prompt">
+                  <div className="relative group/prompt h-10">
                     <p className="text-sm font-normal line-clamp-2 leading-tight pr-6 transition-colors group-hover/prompt:text-brand-blue" title={asset.prompt}>
                       "{asset.prompt}"
                     </p>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCopyPrompt(asset.prompt, asset.id);
-                      }}
-                      className="absolute top-0 right-0 opacity-0 group-hover/prompt:opacity-100 p-1 bg-white border border-black hover:bg-brand-yellow transition-all brutalist-shadow-sm flex items-center justify-center"
-                      title="点击复制提示词"
-                    >
-                      {copiedId === asset.id ? <ClipboardCheck className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
-                    </button>
+                    <div className="absolute top-0 right-0 flex flex-col gap-1 opacity-0 group-hover/prompt:opacity-100">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyPrompt(asset.prompt, asset.id);
+                        }}
+                        className="p-1 bg-white border border-black hover:bg-brand-yellow transition-all brutalist-shadow-sm flex items-center justify-center"
+                        title="点击复制提示词"
+                      >
+                        {copiedId === asset.id ? <ClipboardCheck className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (asset.type === 'image') {
+                            setMainCategory('image');
+                            setSelectedModel(asset.modelId);
+                            setPrompt(asset.prompt);
+                            if (asset.config?.aspectRatio) setAspectRatio(asset.config.aspectRatio);
+                            if (asset.config?.imageSize) setImageSize(asset.config.imageSize);
+                            if (asset.config?.imageQuality) setImageQuality(asset.config.imageQuality);
+                          } else if (asset.type === 'video') {
+                            setMainCategory('video');
+                            setSelectedVideoModel(asset.modelId);
+                            setPrompt(asset.prompt);
+                            if (asset.config?.videoRatio) setVideoRatio(asset.config.videoRatio);
+                            if (asset.config?.videoOptionIdx !== undefined) setVideoOptionIdx(asset.config.videoOptionIdx);
+                          } else if (asset.type === 'audio') {
+                            setMainCategory('audio');
+                            setSelectedAudioModel(asset.modelId);
+                            if (asset.config?.selectedVoice) setSelectedVoice(asset.config.selectedVoice);
+                            if (asset.config?.speakerMap) setSpeakerMap(asset.config.speakerMap);
+                            // For audio, we parse lines and the speaker labels are stripped by parsePromptToLines
+                            const lines = parsePromptToLines(asset.prompt, asset.config?.speakerMap || speakerMap);
+                            setDialogueLines(lines);
+                          }
+                          setIsSidebarOpen(true);
+                          // Scroll to top of sidebar
+                          const sidebar = document.querySelector('.flex-1.overflow-y-auto.px-5.pb-5.pt-2');
+                          if (sidebar) sidebar.scrollTop = 0;
+                        }}
+                        className="p-1 bg-white border border-black hover:bg-brand-blue hover:text-white transition-all brutalist-shadow-sm flex items-center justify-center"
+                        title="编辑提示词"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                   
                   <div className="pt-2 flex gap-2 border-t border-slate-100">
@@ -4150,13 +4994,13 @@ RoleName必须严格对应用户输入中的角色名。`;
                             <Edit className="w-3 h-3" /> 编辑
                         </button>
                      )}
-                     {(asset.type === 'audio') && (
-                        <button onClick={(e) => handleAssetDownload(asset, e)} className="flex-1 py-1.5 bg-white border border-black brutalist-shadow-sm flex items-center justify-center gap-1 hover:bg-brand-green hover:text-black hover:translate-y-0.5 hover:shadow-none transition-all text-xs font-normal uppercase disabled:opacity-50 disabled:grayscale disabled:hover:translate-y-0 disabled:hover:shadow-sm">
-                            <Download className="w-3 h-3" /> 下载
+                     {asset.type === 'image' && (
+                        <button disabled={asset.status !== 'completed'} onClick={(e) => { e.stopPropagation(); handleAssetGenVideo(asset); }} className="flex-1 py-1.5 bg-white border border-black brutalist-shadow-sm flex items-center justify-center gap-1 hover:bg-brand-red hover:text-white hover:translate-y-0.5 hover:shadow-none transition-all text-xs font-normal uppercase disabled:opacity-50 disabled:grayscale disabled:hover:translate-y-0 disabled:hover:shadow-sm">
+                            <Video className="w-3 h-3" /> 视频
                         </button>
                      )}
-                     <button disabled={asset.status !== 'completed' || asset.type === 'video' || asset.type === 'audio'} onClick={(e) => { e.stopPropagation(); handleAssetGenVideo(asset); }} className="flex-1 py-1.5 bg-white border border-black brutalist-shadow-sm flex items-center justify-center gap-1 hover:bg-brand-red hover:text-white hover:translate-y-0.5 hover:shadow-none transition-all text-xs font-normal uppercase disabled:opacity-50 disabled:grayscale disabled:hover:translate-y-0 disabled:hover:shadow-sm">
-                        <Video className="w-3 h-3" /> 视频
+                     <button disabled={asset.status !== 'completed'} onClick={(e) => handleAssetDownload(asset, e)} className="flex-1 py-1.5 bg-white border border-black brutalist-shadow-sm flex items-center justify-center gap-1 hover:bg-brand-green hover:text-black hover:translate-y-0.5 hover:shadow-none transition-all text-xs font-normal uppercase disabled:opacity-50 disabled:grayscale disabled:hover:translate-y-0 disabled:hover:shadow-sm">
+                        <Download className="w-3 h-3" /> 下载
                      </button>
                   </div>
                 </div>
@@ -4164,85 +5008,104 @@ RoleName必须严格对应用户输入中的角色名。`;
             ))}
 
             {generatedAssets.length === 0 && (
-              <div className="col-span-full h-[400px] border-2 border-dashed border-slate-300 flex flex-col items-center justify-center">
-                <Bot className="w-32 h-32 opacity-10 mb-4" />
-                <span className="font-normal text-4xl uppercase tracking-tighter opacity-10 italic">READY FOR ADVENTURE</span>
+              <div className="col-span-full h-[300px] md:h-[400px] border-2 border-dashed border-slate-300 flex flex-col items-center justify-center p-4">
+                <Bot className="w-24 h-24 md:w-32 md:h-32 opacity-10 mb-4" />
+                <span className="font-normal text-2xl md:text-4xl uppercase tracking-tighter opacity-10 italic text-center px-4 leading-none">
+                  READY FOR ADVENTURE
+                </span>
               </div>
             )}
           </div>
         </div>
       </div>
       )}
+      
+      </div>
+    </div>
 
-      {/* ... (Other modals: settings, links, usage, price, edit-prompt, styles, library, save-prompt-confirm, video-remix, previewAsset, previewRefImage - all remain unchanged) */}
+    {/* Modals */}
       {activeModal === 'settings' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-[600px] bg-white border-2 border-black brutalist-shadow animate-in zoom-in-95 relative">
-            <ModalHeader title="系统设置 / SETTINGS" icon={Settings2} onClose={() => setActiveModal(null)} />
-            <div className="p-8 space-y-6">
+            <ModalHeader title="系统设置 / SETTINGS" icon={Settings} onClose={() => setActiveModal(null)} />
+            <div className="p-8 space-y-5">
               
               <div className="space-y-2">
                 <div className="flex justify-between items-end">
-                    <a href={FIXED_BASE_URL} target="_blank" className="text-lg font-bold uppercase italic flex items-center gap-2 hover:underline decoration-2 underline-offset-4">
+                    <a href={`${tempConfig.baseUrl.replace(/\/$/, '')}/console/token`} target="_blank" className="text-lg font-bold uppercase italic flex items-center gap-2 hover:underline decoration-2 underline-offset-4">
                         API令牌获取地址 <ExternalLink className="w-5 h-5"/>
                     </a>
                     <a href="https://my.feishu.cn/wiki/EPP6wHZEVi1Wi4kZac5cGWDTnx3?from=from_copylink" target="_blank" className="text-lg font-bold uppercase italic flex items-center gap-2 hover:underline decoration-2 underline-offset-4 text-brand-blue hover:text-blue-700 transition-colors">
-                        使用教程 <BookOpen className="w-5 h-5"/>
+                        令牌设置教程-必看 <BookOpen className="w-5 h-5"/>
                     </a>
                 </div>
                 <input 
                     type="text" 
-                    value="https://api.jiguangmanying.xyz" 
-                    readOnly 
-                    className="w-full h-14 px-4 border border-black bg-slate-50 text-slate-600 text-lg font-normal font-mono outline-none" 
+                    value={tempConfig.baseUrl} 
+                    readOnly
+                    className="w-full h-11 px-4 border border-black bg-gray-100 text-gray-500 text-lg font-normal font-mono outline-none cursor-not-allowed" 
+                    placeholder="请输入接口地址，如 https://api.openai.com"
                 />
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <label className="text-lg font-bold uppercase italic block">
                     API令牌 (KEY)
                 </label>
                 
-                <div className="space-y-3">
-                    <div className="flex items-center gap-3">
+                <div className="space-y-2">
+                    <div className="flex items-center gap-2">
                         <input 
                             type="radio" 
                             checked={tempConfig.selectedKeyIndex !== 1} 
                             onChange={() => setTempConfig({...tempConfig, selectedKeyIndex: 0})}
                             className="w-5 h-5 accent-brand-blue cursor-pointer"
                         />
-                        <input 
-                            type="password" 
-                            value={tempConfig.apiKey} 
-                            onChange={e => setTempConfig({...tempConfig, apiKey: e.target.value})} 
-                            placeholder="令牌 1"
-                            className={`flex-1 h-12 px-4 border border-black text-lg font-normal font-mono outline-none transition-colors tracking-widest placeholder:text-slate-300 placeholder:text-base placeholder:font-sans placeholder:tracking-normal ${tempConfig.selectedKeyIndex !== 1 ? 'bg-white focus:bg-brand-cream' : 'bg-slate-100 text-slate-400'}`}
-                        />
+                        <div className="relative flex-1">
+                            <input 
+                                type={showKey1 ? "text" : "password"} 
+                                value={tempConfig.apiKey} 
+                                onChange={e => setTempConfig({...tempConfig, apiKey: e.target.value})} 
+                                placeholder="令牌 1"
+                                className={`w-full h-11 px-4 pr-12 border border-black text-lg font-normal font-mono outline-none transition-colors tracking-widest placeholder:text-slate-300 placeholder:text-base placeholder:font-sans placeholder:tracking-normal ${tempConfig.selectedKeyIndex !== 1 ? 'bg-white focus:bg-brand-cream' : 'bg-slate-100 text-slate-400'}`}
+                            />
+                            <button 
+                                onClick={() => setShowKey1(!showKey1)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black transition-colors"
+                            >
+                                {showKey1 ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                         <input 
                             type="radio" 
                             checked={tempConfig.selectedKeyIndex === 1} 
                             onChange={() => setTempConfig({...tempConfig, selectedKeyIndex: 1})}
                             className="w-5 h-5 accent-brand-blue cursor-pointer"
                         />
-                        <input 
-                            type="password" 
-                            value={tempConfig.apiKey2 || ''} 
-                            onChange={e => setTempConfig({...tempConfig, apiKey2: e.target.value})} 
-                            placeholder="令牌 2"
-                            className={`flex-1 h-12 px-4 border border-black text-lg font-normal font-mono outline-none transition-colors tracking-widest placeholder:text-slate-300 placeholder:text-base placeholder:font-sans placeholder:tracking-normal ${tempConfig.selectedKeyIndex === 1 ? 'bg-white focus:bg-brand-cream' : 'bg-slate-100 text-slate-400'}`}
-                        />
+                        <div className="relative flex-1">
+                            <input 
+                                type={showKey2 ? "text" : "password"} 
+                                value={tempConfig.apiKey2 || ''} 
+                                onChange={e => setTempConfig({...tempConfig, apiKey2: e.target.value})} 
+                                placeholder="令牌 2"
+                                className={`w-full h-11 px-4 pr-12 border border-black text-lg font-normal font-mono outline-none transition-colors tracking-widest placeholder:text-slate-300 placeholder:text-base placeholder:font-sans placeholder:tracking-normal ${tempConfig.selectedKeyIndex === 1 ? 'bg-white focus:bg-brand-cream' : 'bg-slate-100 text-slate-400'}`}
+                            />
+                            <button 
+                                onClick={() => setShowKey2(!showKey2)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black transition-colors"
+                            >
+                                {showKey2 ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div className="w-full font-bold text-brand-red text-base mt-2 text-left">
-                   API令牌分组优先级：限时特价→sora-vip→default→优质gemini→逆向
-                </div>
               </div>
 
-              <button onClick={saveConfig} className="w-full h-16 bg-brand-yellow border-2 border-black font-bold text-xl uppercase tracking-tighter hover:translate-y-1 hover:shadow-none brutalist-shadow transition-all flex items-center justify-center gap-2 mt-2">
+              <button onClick={saveConfig} className="w-full h-14 bg-brand-yellow border-2 border-black font-bold text-xl uppercase tracking-tighter hover:translate-y-1 hover:shadow-none brutalist-shadow transition-all flex items-center justify-center gap-2 mt-1">
                 保存设置/SAVE SETTINGS
               </button>
             </div>
@@ -4254,25 +5117,43 @@ RoleName必须严格对应用户输入中的角色名。`;
       {activeModal === 'links' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-[500px] bg-white border-2 border-black brutalist-shadow animate-in zoom-in-95 relative">
-            <ModalHeader title="联系客服 / WECHAT GROUP" icon={Headset} onClose={() => setActiveModal(null)} />
-            <div className="p-8 space-y-6">
-               <div className="bg-brand-cream border-2 border-black p-6 flex flex-col items-center gap-4 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+            <ModalHeader title="联系客服 / SUPPORT" icon={MessageCircleQuestion} onClose={() => setActiveModal(null)} />
+            <div className="p-6 space-y-4">
+               <div className="bg-brand-cream border-2 border-black p-4 flex flex-col items-center gap-2 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
                   <div className="absolute top-0 right-0 bg-brand-yellow px-3 py-1 border-l border-b border-black font-normal text-[10px] uppercase">Online</div>
-                  <div className="w-16 h-16 bg-brand-blue text-white border border-black rounded-full flex items-center justify-center brutalist-shadow-sm mb-2">
-                      <Headset className="w-8 h-8" />
+                  <div className="w-14 h-14 bg-brand-blue text-white border border-black rounded-full flex items-center justify-center brutalist-shadow-sm mb-1">
+                      <MessageCircleQuestion className="w-7 h-7" />
                   </div>
-                  <div className="text-center space-y-2 w-full">
-                      <h3 className="font-bold text-sm uppercase italic text-slate-500 tracking-widest">WeChat QR Code</h3>
+                  <div className="text-center space-y-1 w-full">
+                      <h3 className="font-bold text-sm uppercase italic text-slate-500 tracking-widest">WeChat Support</h3>
                       <div className="flex w-full items-stretch">
                           <div className="bg-brand-green text-black px-4 flex items-center justify-center border border-black border-r-0 font-bold text-xl whitespace-nowrap tracking-tighter">
-                            联系客服
+                            微信客服
                           </div>
-                          <div className="bg-white border border-black px-4 py-3 flex-1 flex items-center justify-center hover:bg-slate-50 transition-colors">
-                              <img src="https://lsky.zhongzhuan.chat/i/2026/03/27/69c6348142649.png" alt="WeChat QR Code" className="max-h-48 w-auto object-contain" referrerPolicy="no-referrer" />
+                          <div className="bg-white border border-black px-4 py-2 text-2xl font-bold uppercase tracking-wider select-all cursor-text hover:bg-slate-50 transition-colors flex-1 text-center">
+                              {APP_CONFIG.WECHAT_SERVICE}
                           </div>
                       </div>
-                      <p className="text-[10px] font-normal text-slate-400 uppercase italic text-center">Scan QR Code / Long press</p>
+                      <p className="text-[10px] font-normal text-slate-400 uppercase italic">Click text to copy / Long press</p>
                   </div>
+               </div>
+
+               <div className="w-full h-0.5 bg-slate-100 border-t border-dashed border-slate-300"></div>
+
+               <div className="space-y-3 text-center">
+                  <div className="space-y-1">
+                      <h4 className="font-bold text-lg uppercase italic flex items-center justify-center gap-2">
+                          <span className="w-2 h-2 bg-brand-green rounded-full border border-black"></span>
+                          招募优质API代理
+                      </h4>
+                      <p className="text-xs font-bold text-slate-500 italic px-4 leading-relaxed">
+                          名额有限，欢迎想通过AI创业的伙伴加入。
+                      </p>
+                  </div>
+
+                  <a href={APP_CONFIG.SUPPORT_DETAIL_URL} target="_blank" className="flex items-center justify-center w-full py-3 bg-brand-red text-white border-2 border-transparent outline outline-2 outline-black font-bold text-lg uppercase hover:bg-black hover:translate-y-1 hover:shadow-none brutalist-shadow transition-all italic gap-2 group">
+                      查看更多详情 <ExternalLink className="w-5 h-5 group-hover:scale-110 transition-transform"/>
+                  </a>
                </div>
             </div>
           </div>
@@ -4286,7 +5167,7 @@ RoleName必须严格对应用户输入中的角色名。`;
             <div className="p-8 space-y-6">
               {[
                 { n: '1', t: '注册与令牌', d: <>
-                  前往主站 <a href="https://api.jiguangmanying.xyz" target="_blank" className="text-blue-600 font-medium underline italic">api.jiguangmanying.xyz</a> 注册并创建您的专属令牌。
+                  前往主站 <a href={APP_CONFIG.BASE_URL} target="_blank" className="text-blue-600 font-medium underline italic">{APP_CONFIG.BASE_URL}</a> 注册并创建您的专属令牌。
                   <div className="mt-2 text-brand-red font-normal text-sm">API令牌分组：限时特价→default→优质gemini→逆向→sora-vip</div>
                 </> },
                 { n: '2', t: '配置使用', d: '点击本站上方设置 按钮，输入令牌即可开始创作。' },
@@ -4305,8 +5186,8 @@ RoleName必须严格对应用户输入中的角色名。`;
 
       {activeModal === 'price' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-[600px] bg-white border-2 border-black brutalist-shadow animate-in zoom-in-95 relative flex flex-col max-h-[85vh]">
-            <ModalHeader title="价格说明 / PRICING" icon="¥" onClose={() => setActiveModal(null)} />
+          <div className="w-[700px] bg-white border-2 border-black brutalist-shadow animate-in zoom-in-95 relative flex flex-col max-h-[85vh]">
+            <ModalHeader title="价格说明 / PRICING" icon={BadgeDollarSign} onClose={() => setActiveModal(null)} />
             <PriceView />
             <div className="p-3 bg-brand-cream border-t-2 border-black shrink-0 text-center">
                 <p className="text-sm text-slate-500 font-normal italic">
@@ -4326,7 +5207,7 @@ RoleName必须严格对应用户输入中的角色名。`;
                     value={mainCategory === 'chat' ? chatInput : prompt} 
                     onChange={(e) => mainCategory === 'chat' ? setChatInput(e.target.value) : setPrompt(e.target.value)} 
                     placeholder="在此输入详细的提示词..." 
-                    className="flex-1 w-full p-4 border border-black font-normal text-xl bg-[#F8FAFC] focus:outline-none brutalist-input resize-none leading-relaxed italic" 
+                    className="flex-1 w-full p-4 border border-black font-normal text-xl bg-slate-50 focus:outline-none brutalist-input resize-none leading-relaxed italic" 
                 />
                 <div className="flex justify-between items-center pt-2">
                     <div className="text-xs text-slate-500 font-normal uppercase italic">
@@ -4349,11 +5230,57 @@ RoleName必须严格对应用户输入中的角色名。`;
         </div>
       )}
 
+      {activeModal === 'edit-line' && editingLineId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="w-full max-w-4xl h-[80vh] bg-white border-2 border-black brutalist-shadow animate-in zoom-in-95 relative flex flex-col">
+            <ModalHeader title="台词编辑 / LINE EDITOR" icon={Edit} onClose={() => { setActiveModal(null); setEditingLineId(null); }} />
+            <div className="flex-1 p-6 flex flex-col gap-4 min-h-0">
+                <textarea 
+                    value={dialogueLines.find(l => l.id === editingLineId)?.text || ''} 
+                    onChange={(e) => {
+                        const newLines = [...dialogueLines];
+                        const idx = newLines.findIndex(l => l.id === editingLineId);
+                        if (idx !== -1) {
+                            newLines[idx].text = e.target.value;
+                            setDialogueLines(newLines);
+                        }
+                    }} 
+                    placeholder="在此输入台词..." 
+                    className="flex-1 w-full p-4 border border-black font-normal text-xl bg-slate-50 focus:outline-none brutalist-input resize-none leading-relaxed italic" 
+                />
+                <div className="flex justify-between items-center pt-2">
+                    <div className="text-xs text-slate-500 font-normal uppercase italic">
+                        {(dialogueLines.find(l => l.id === editingLineId)?.text || '').length} CHARS
+                    </div>
+                    <div className="flex gap-3">
+                        <button onClick={() => {
+                            const newLines = [...dialogueLines];
+                            const idx = newLines.findIndex(l => l.id === editingLineId);
+                            if (idx !== -1) {
+                                newLines[idx].text = '';
+                                setDialogueLines(newLines);
+                            }
+                        }} className="px-4 py-2 bg-white border border-black font-normal uppercase hover:bg-slate-100 transition-colors brutalist-shadow-sm text-xs">
+                            清空 / Clear
+                        </button>
+                        <button onClick={() => { navigator.clipboard.writeText(dialogueLines.find(l => l.id === editingLineId)?.text || ''); }} className="px-4 py-2 bg-white border border-black font-normal uppercase hover:bg-brand-yellow transition-colors brutalist-shadow-sm text-xs">
+                            复制 / Copy
+                        </button>
+                        <button onClick={() => { setActiveModal(null); setEditingLineId(null); }} className="px-6 py-2 bg-brand-red text-white border border-black font-normal uppercase hover:translate-y-0.5 hover:shadow-none brutalist-shadow-sm transition-all text-xs">
+                            完成 / Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
+      )}
+
       {activeModal === 'styles' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 md:p-4">
           <div className="w-[900px] max-w-full bg-white border-2 border-black brutalist-shadow animate-in zoom-in-95 relative flex flex-col max-h-[85vh]">
             <ModalHeader title="风格与镜头 / STYLES & CAMERA" icon={Palette} onClose={() => setActiveModal(null)} />
-            <div className="flex-1 p-4 md:p-5 overflow-y-auto no-scrollbar bg-[#f8fafc]">
+            <div className="flex-1 p-4 md:p-5 overflow-y-auto no-scrollbar bg-slate-50">
               
               {renderStyleSection('艺术风格 (Art Styles)', STYLES.map(s => s.zh), false)}
               
@@ -4490,37 +5417,36 @@ RoleName必须严格对应用户输入中的角色名。`;
       )}
 
       {previewAsset && (
-        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center" onClick={() => setPreviewAsset(null)}>
-          <button className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors z-[110]" onClick={() => setPreviewAsset(null)}>
+        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center animate-in fade-in duration-300" onClick={() => setPreviewAsset(null)}>
+          <button 
+            className="absolute top-6 right-6 w-12 h-12 flex items-center justify-center bg-black/40 hover:bg-black/60 text-white transition-all rounded-full z-[120] border border-white/10" 
+            onClick={(e) => { e.stopPropagation(); setPreviewAsset(null); }}
+          >
             <X className="w-8 h-8 drop-shadow-md" />
           </button>
           
-          <div className="w-full h-full flex items-center justify-center p-2 md:p-4" onClick={e => e.stopPropagation()}>
+          <div className="w-full h-full flex items-center justify-center p-8 md:p-24 animate-in zoom-in-95 duration-300">
              {previewAsset.type === 'image' ? (
-                <img src={previewAsset.url} className="max-w-full max-h-full object-contain shadow-2xl" />
+                <img src={previewAsset.url} className="w-full h-full object-contain shadow-2xl" />
              ) : (
-                <video src={previewAsset.url} controls autoPlay className="max-w-full max-h-full shadow-2xl" />
+                <video src={previewAsset.url} controls autoPlay className="w-full h-full object-contain shadow-2xl" />
              )}
           </div>
-
-          <button 
-            onClick={(e) => { e.stopPropagation(); handleAssetDownload(previewAsset, e); }} 
-            className="absolute bottom-8 right-8 p-4 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full text-white transition-all border border-white/20 group z-[110]"
-            title="下载原图"
-          >
-            <Download className="w-8 h-8 group-hover:scale-110 transition-transform" />
-          </button>
         </div>
       )}
 
       {previewRefImage && (
-        <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-10" onClick={() => setPreviewRefImage(null)}>
-            <div className="relative max-w-full max-h-full">
-                <img src={previewRefImage.data.startsWith('http') ? previewRefImage.data : `data:${previewRefImage.mimeType};base64,${previewRefImage.data}`} className="max-w-full max-h-[90vh] object-contain border-4 border-white" />
-                <button onClick={() => setPreviewRefImage(null)} className="absolute -top-12 right-0 text-white hover:text-red-500">
-                    <X className="w-8 h-8"/>
-                </button>
-            </div>
+        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center animate-in fade-in duration-300" onClick={() => setPreviewRefImage(null)}>
+          <button 
+            className="absolute top-6 right-6 w-12 h-12 flex items-center justify-center bg-black/40 hover:bg-black/60 text-white transition-all rounded-full z-[120] border border-white/10" 
+            onClick={(e) => { e.stopPropagation(); setPreviewRefImage(null); }}
+          >
+            <X className="w-8 h-8 drop-shadow-md" />
+          </button>
+          
+          <div className="w-full h-full flex items-center justify-center p-8 md:p-24 animate-in zoom-in-95 duration-300">
+             <img src={previewRefImage.data.startsWith('http') ? previewRefImage.data : `data:${previewRefImage.mimeType};base64,${previewRefImage.data}`} className="w-full h-full object-contain shadow-2xl" />
+          </div>
         </div>
       )}
     </div>
