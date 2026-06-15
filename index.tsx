@@ -3835,7 +3835,6 @@ const App = () => {
         <header className="bg-brand-yellow pl-2 pr-5 border-b-2 border-black h-12 flex items-center justify-between z-30 shrink-0">
            <div className="flex items-center gap-2 sm:gap-4">
              <h1 className="text-2xl font-bold italic tracking-tight text-black shrink-0">{APP_CONFIG.APP_NAME}</h1>
-             <span className="text-xs md:text-sm text-gray-800 font-normal shrink-0">
            </div>
            <div className="flex items-center gap-1 md:gap-2">
                 <button onClick={() => setActiveModal('settings')} title="系统设置" className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-black hover:text-brand-red transition-colors">
