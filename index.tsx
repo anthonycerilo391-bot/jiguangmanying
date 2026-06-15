@@ -163,21 +163,10 @@ const GPT2_SIZES: Record<string, Record<string, string>> = {
   "9:21": { "1K": "864x2016", "2K": "1152x2688", "4K": "1648x3840" }
 };
 
-const GROK_RATIOS = ['1:1', '2:3', '3:2', '9:16', '16:9'];
 const GROK_IMAGINE_RATIOS = ['1:1', '4:3', '9:16', '16:9'];
-const KLING_O1_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'];
 const DOUBAO_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9'];
 
 const MODELS: ModelDefinition[] = [
-  { 
-    id: 'gemini-2.5-flash-image', 
-    name: 'Gemini-2.5-Flash-Image', 
-    cost: 'Flash',
-    features: ['fast', 'multimodal'],
-    maxImages: 4,
-    supportedAspectRatios: EXTENDED_RATIOS,
-    supportedResolutions: ['AUTO']
-  },
   { 
     id: 'gemini-3.1-flash-image-preview', 
     name: 'Gemini-3.1-Flash-Image', 
@@ -195,15 +184,6 @@ const MODELS: ModelDefinition[] = [
     maxImages: 8,
     supportedAspectRatios: EXTENDED_RATIOS,
     supportedResolutions: ['1K', '2K', '4K']
-  },
-  {
-    id: 'kling-image-o1',
-    name: 'Kling Image O1',
-    cost: 'Kling',
-    features: ['omni', 'high-quality'],
-    maxImages: 4,
-    supportedAspectRatios: KLING_O1_RATIOS,
-    supportedResolutions: ['1K', '2K']
   },
   {
     id: 'gpt-image-1.5-all',
@@ -232,15 +212,6 @@ const MODELS: ModelDefinition[] = [
     maxImages: 4,
     supportedAspectRatios: GPT2_RATIOS,
     supportedResolutions: ['1K', '2K', '4K']
-  },
-  {
-    id: 'grok-4-image',
-    name: 'Grok 4 Image',
-    cost: 'Grok',
-    features: ['creative'],
-    maxImages: 1,
-    supportedAspectRatios: GROK_RATIOS,
-    supportedResolutions: ['AUTO']
   },
   {
     id: 'grok-imagine-image',
@@ -286,6 +257,18 @@ const MODEL_CAPABILITIES: Record<string, { image: boolean; audio: boolean; video
 };
 
 const VIDEO_MODELS = [
+  {
+    id: 'happyhorse-1.0',
+    name: 'Happy Horse-1.0',
+    desc: '多模态视频',
+    maxVideos: 1,
+    maxImages: 9,
+    supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    options: [
+      {s: 'AUTO', q: '720P'},
+      {s: 'AUTO', q: '1080P'}
+    ]
+  },
   { id: 'veo_3_1-lite', name: 'veo_3_1-lite', desc: '标清/首尾帧(0.35元/次)', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '标清'}] },
   { id: 'veo_3_1-lite-4K', name: 'veo_3_1-lite-4K', desc: '4K/首尾帧(0.385元/次)', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '4K'}] },
   { id: 'veo_3_1-fast', name: 'veo_3_1-fast', desc: '标清/首尾帧', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '标清'}] },
@@ -303,38 +286,14 @@ const VIDEO_MODELS = [
   { id: 'veo3.1-components-4k', name: 'veo3.1-components-4k', desc: '4K/多图融合', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '4K'}] },
   { id: 'veo3.1-pro-4k', name: 'veo3.1-pro-4k', desc: '4K/首尾帧', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '4K'}] },
   {
-    id: 'seedance-2.0',
-    name: 'SEEDANCE 2.0暂不可用',
-    desc: '高清/多比例',
-    supportedAspectRatios: ['9:16', '16:9', '1:1', '3:4', '4:3', '21:9'],
-    options: [
-      { q: '标清' },
-      { q: '高清' }
-    ]
-  },
-  {
     id: 'grok-video-3',
     name: 'Grok Video 3',
     desc: '标清视频', 
     supportedAspectRatios: ['9:16', '16:9', '2:3', '3:2', '1:1'],
     options: [
       {s: '6', q: '标清'},
-      {s: '10', q: '标清', modelIdOverride: 'grok-video-3-10s'},
-      {s: '15', q: '标清（模型下线）', modelIdOverride: 'grok-video-3-15s', disabled: true},
-      {s: '15', q: '高清（模型下线）', modelIdOverride: 'grok-video-3-15s', disabled: true}
+      {s: '10', q: '标清', modelIdOverride: 'grok-video-3-10s'}
     ] 
-  },
-  {
-    id: 'grok-videos',
-    name: 'GROK VIDEOS',
-    desc: '高清视频',
-    supportedAspectRatios: ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'],
-    options: [
-      {s: '5', q: '标清'},
-      {s: '10', q: '标清'},
-      {s: '5', q: '高清'},
-      {s: '10', q: '高清'}
-    ]
   },
   { 
     id: 'kling-motion-control', 
@@ -353,37 +312,6 @@ const VIDEO_MODELS = [
     supportedAspectRatios: ['原图比例'],
     options: [
       {s: 'AUTO', q: '标准模式'}, {s: 'AUTO', q: '高品质模式'}
-    ] 
-  },
-  { 
-    id: 'sora-2-all', 
-    name: 'Sora-2-All', 
-    desc: '标清视频', 
-    supportedAspectRatios: ['9:16', '16:9'],
-    options: [
-      {s: '10', q: '标清'},
-      {s: '15', q: '标清'}
-    ] 
-  },
-  { 
-    id: 'sora-2', 
-    name: 'Sora-2(官转按秒计费)', 
-    desc: '标清视频', 
-    supportedAspectRatios: ['9:16', '16:9'],
-    options: [
-      {s: '4', q: '标清'}, 
-      {s: '8', q: '标清'},
-      {s: '12', q: '标清'}
-    ] 
-  },
-  { 
-    id: 'sora-2-pro-all', 
-    name: 'Sora-2-Pro-All', 
-    desc: '高清/长效', 
-    supportedAspectRatios: ['9:16', '16:9'],
-    options: [
-      {s: '15', q: '高清'}, 
-      {s: '25', q: '标清'}
     ] 
   }
 ];
@@ -634,7 +562,7 @@ const deleteAssetFromDB = async (id: string) => {
 };
 
 const renderMessageContent = (text: string) => {
-    return <div className="markdown-body"><ReactMarkdown>{text}</ReactMarkdown></div>;
+    return <ReactMarkdown>{text}</ReactMarkdown>;
 };
 
 // --- ChatView Component ---
@@ -1299,14 +1227,11 @@ const PRICE_DATA = [
   {
     category: '图片模型',
     items: [
-      { m: 'Gemini-2.5-Flash-Image', p: '0.063元/张' },
       { m: 'Gemini-3.1-Flash-Image', p: '1K/2K 0.116元/张，4K 0.207元/张' },
       { m: 'Gemini-3-Pro-Image', p: '1K/2K 0.231元/张，4K 0.414元/张' },
-      { m: 'Kling Image O1', p: '0.238元/张' },
       { m: 'GPT Image 1.5', p: '0.055元/张' },
       { m: 'GPT IMAGE 2(推荐使用)', p: '提示3.500元/1M tokens    补全21.000元/1M tokens' },
-      { m: 'GPT Image 2 ALL', p: '0.060元/张' },
-      { m: 'Grok 4 Image', p: '0.056元/张' },
+      { m: 'GPT Image 2 ALL', p: '0.084元/张' },
       { m: 'Grok Imagine Image', p: '0.146元/张' },
       { m: 'Doubao Seedream 5.0', p: '0.154元/张' },
     ]
@@ -1331,18 +1256,11 @@ const PRICE_DATA = [
       { m: 'veo3.1-components-4k', p: '0.700元/条' },
       { m: 'veo3.1-pro-4k', p: '2.450元/条' },
       { m: 'Grok Video 3', p: '0.280元/6秒，0.280元/10秒' },
-      { m: 'GROK VIDEOS', p: '0.140元/次' },
       { m: 'Kling Control Std (动作转移)', p: '0.595元/秒' },
       { m: 'Kling Control Pro (动作转移)', p: '0.952元/秒' },
       { m: 'KLING Avatar Std (数字人)', p: '1.190元/秒' },
       { m: 'KLING Avatar Pro (数字人)', p: '2.380元/秒' },
-      { m: 'Sora-2-all', p: 'default分组 0.14元/条' },
-      { m: 'Sora-2(官转按秒计费)', p: <div className="flex flex-col items-end text-right">
-        <div>官转 0.21元/秒</div>
-        <div>官转Open AI分组 0.42元/秒</div>
-        <div>优质官转Open AI分组 0.56元/秒</div>
-      </div> },
-      { m: 'Sora-2-Pro-All', p: '2.520元/条' },
+      { m: 'Happy Horse-1.0', p: '720P 1.071元/秒，1080P 1.904元/秒' },
     ]
   },
   {
@@ -1381,7 +1299,7 @@ const PriceView = () => {
                             } else {
                                 priceContent = (
                                   <div className="flex flex-col items-end text-right text-gray-500 text-sm font-medium">
-                                    {React.Children.map(item.p.props.children, (child) => {
+                                    {React.Children.map((item.p as any).props.children, (child) => {
                                       if (typeof child === 'string') return <div>{formatPriceString(child, decimals)}</div>;
                                       if (React.isValidElement(child)) {
                                         return React.cloneElement(child as React.ReactElement, {
@@ -1581,6 +1499,9 @@ const App = () => {
   const [klingKeepSound, setKlingKeepSound] = useState(false);
   const [klingDubVol, setKlingDubVol] = useState(1.0);
   const [klingSrcVol, setKlingSrcVol] = useState(0.0);
+  const [happyHorseWatermark, setHappyHorseWatermark] = useState(false);
+  const [happyHorseAudio, setHappyHorseAudio] = useState('auto');
+  const [happyHorseDuration, setHappyHorseDuration] = useState(8);
   const [isTransparent, setIsTransparent] = useState(false);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [previewAsset, setPreviewAsset] = useState<GeneratedAsset | null>(null);
@@ -1613,7 +1534,6 @@ const App = () => {
   const [draggedPromptIdx, setDraggedPromptIdx] = useState<number | null>(null);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [dialogueLines, setDialogueLines] = useState<DialogueLine[]>([{ id: generateUUID(), speakerId: '1', text: '' }]);
-  const [seedanceDuration, setSeedanceDuration] = useState(10);
   
   // Library State & other states...
   const [editingLibraryId, setEditingLibraryId] = useState<string | null>(null);
@@ -1952,7 +1872,7 @@ const App = () => {
   };
   
   const updateAssetStatus = async (id: string, status: 'completed' | 'failed', label: string, url?: string) => {
-      setGeneratedAssets(prev => prev.map(a => a.id === id ? { ...a, status, label: label, ...(url ? { url } : {}) } : a));
+      setGeneratedAssets(prev => prev.map(a => a.id === id ? { ...a, status, genTimeLabel: label, ...(url ? { url } : {}) } : a));
       const assets = await getAllAssetsFromDB();
       const existing = assets.find(a => a.id === id);
       if (existing) {
@@ -2070,8 +1990,15 @@ const App = () => {
         let key = ((configRef.current.selectedKeyIndex === 1 ? configRef.current.apiKey2 : configRef.current.apiKey) || safeEnvKey).trim();
         if (!key || !taskId) { clearInterval(interval); return; }
         try {
+            const isHappyHorse = modelId.startsWith('happyhorse');
             const isVeoGrokJimeng = modelId.startsWith('veo3.1') || modelId.startsWith('grok') || modelId.startsWith('jimeng') || modelId.startsWith('kling');
-            const url = isVeoGrokJimeng ? `${configRef.current.baseUrl}/v1/video/query?id=${taskId}` : `${configRef.current.baseUrl}/v1/videos/${taskId}`;
+            
+            let url = `${configRef.current.baseUrl}/v1/videos/${taskId}`;
+            if (isHappyHorse) {
+                url = `${configRef.current.baseUrl}/alibailian/api/v1/tasks/${taskId}`;
+            } else if (isVeoGrokJimeng) {
+                url = `${configRef.current.baseUrl}/v1/video/query?id=${taskId}`;
+            }
             
             const res = await fetch(url, { headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' } });
             
@@ -2092,15 +2019,19 @@ const App = () => {
             console.log("Polling result for task", taskId, data);
             
             // Check for API level error objects
-            if (data.error) {
+            if (data.error || (data.code && data.code !== '200' && data.code !== 200 && !data.output)) {
                  console.error("Polling API Error Response for task", taskId, data);
-                 updateAssetStatus(assetId, 'failed', data.error.message || 'API Error');
+                 updateAssetStatus(assetId, 'failed', data.message || data.error?.message || 'API Error');
                  clearInterval(interval);
                  return;
             }
 
-            const rawStatus = (data.status || data.state || data.data?.status || '').toLowerCase();
-            const videoUrl = data.video_url || data.url || data.uri || data.data?.url || data.data?.video_url;
+            const rawStatus = (data.status || data.state || data.data?.status || data.output?.task_status || '').toLowerCase();
+            let videoUrl = data.video_url || data.url || data.uri || data.data?.url || data.data?.video_url || data.output?.video_url;
+
+            if (!videoUrl && data.output?.video_urls && data.output.video_urls.length > 0) {
+                videoUrl = data.output.video_urls[0];
+            }
 
             // Check for error logs in response
             const logs = (data.logs || data.task_log || data.usage_log || '').toString();
@@ -2139,7 +2070,7 @@ const App = () => {
   useEffect(() => {
     let limit = 4;
     if (isVideoMode) {
-        if (selectedVideoModel === 'seedance-2.0') limit = 9;
+        if (selectedVideoModel === 'happyhorse-1.0') limit = 9;
         else if (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') limit = 1;
         else if (selectedVideoModel.includes('components')) limit = 3;
         else if (selectedVideoModel.startsWith('veo')) limit = 2;
@@ -2164,20 +2095,15 @@ const App = () => {
     if (!isVideoMode) {
         max = currentModel?.maxReferenceImages ?? currentModel?.maxImages ?? 4;
     } else {
-        if (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') {
+        if (selectedVideoModel === 'happyhorse-1.0') {
+            max = 9;
+        } else if (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') {
             max = 1;
         } else if (selectedVideoModel.includes('components')) {
             max = 3;
-        } else if (selectedVideoModel === 'seedance-2.0') {
-            max = 9;
         } else {
             max = selectedVideoModel.startsWith('veo') ? 2 : 1;
         }
-    }
-
-    if (isVideoMode && selectedVideoModel === 'seedance-2.0') {
-        const totalFiles = referenceImages.length + referenceVideos.length + referenceAudios.length + files.length;
-        if (totalFiles > 12) { setError('文件总数不能超过 12 个'); return; }
     }
 
     const remaining = max - referenceImages.length;
@@ -2225,15 +2151,7 @@ const App = () => {
   const processVideoFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
-    if (selectedVideoModel === 'seedance-2.0') {
-        const totalFiles = referenceImages.length + referenceVideos.length + referenceAudios.length + files.length;
-        if (totalFiles > 12) { setError('文件总数不能超过 12 个'); return; }
-        if (referenceVideos.length + files.length > 3) { setError('视频最多上传 3 个'); return; }
-    } else {
-        if (referenceVideos.length + files.length > 1) { setError('当前模型仅支持 1 个视频'); return; }
-    }
-
-    let currentTotalDuration = referenceVideos.reduce((acc, v) => acc + (v.duration || 0), 0);
+    if (referenceVideos.length + files.length > 1) { setError('当前模型仅支持 1 个视频'); return; }
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -2256,14 +2174,6 @@ const App = () => {
                 };
                 video.src = URL.createObjectURL(file);
             });
-
-            if (selectedVideoModel === 'seedance-2.0') {
-                if (currentTotalDuration + duration > 15) {
-                    setError(`视频总时长超过 15 秒 (当前: ${currentTotalDuration.toFixed(1)}s, 新增: ${duration.toFixed(1)}s)`);
-                    break;
-                }
-                currentTotalDuration += duration;
-            }
 
             const dataUrl = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
@@ -2293,15 +2203,7 @@ const App = () => {
   const processAudioFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
     
-    if (selectedVideoModel === 'seedance-2.0') {
-        const totalFiles = referenceImages.length + referenceVideos.length + referenceAudios.length + files.length;
-        if (totalFiles > 12) { setError('文件总数不能超过 12 个'); return; }
-        if (referenceAudios.length + files.length > 3) { setError('音频最多上传 3 个'); return; }
-    } else {
-        if (referenceAudios.length + files.length > 1) { setError('当前模型仅支持 1 个音频'); return; }
-    }
-
-    let currentTotalDuration = referenceAudios.reduce((acc, a) => acc + (a.duration || 0), 0);
+    if (referenceAudios.length + files.length > 1) { setError('当前模型仅支持 1 个音频'); return; }
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -2329,17 +2231,9 @@ const App = () => {
                 };
             });
 
-            if (selectedVideoModel === 'seedance-2.0') {
-                if (currentTotalDuration + duration > 15) {
-                    setError(`音频总时长超过 15 秒`);
-                    break;
-                }
-                currentTotalDuration += duration;
-            } else {
-                if (duration < 2 || duration > 60) {
-                    setError('音频时长需在 2~60 秒之间');
-                    continue;
-                }
+            if (duration < 2 || duration > 60) {
+                setError('音频时长需在 2~60 秒之间');
+                continue;
             }
 
             const dataUrl = await new Promise<string>((resolve) => {
@@ -2397,8 +2291,6 @@ const App = () => {
   };
 
   const removeReferenceImage = (id: string) => setReferenceImages(prev => prev.filter(img => img.id !== id));
-  const removeReferenceVideo = (id: string) => setReferenceVideos(prev => prev.filter(v => v.id !== id));
-  const removeReferenceAudio = (id: string) => setReferenceAudios(prev => prev.filter(a => a.id !== id));
 
   const optimizePrompt = async () => {
      // ... same as before
@@ -2994,7 +2886,6 @@ const App = () => {
     
     const tRatio = overrideConfig?.videoRatio ?? videoRatio;
     let tOptIdx = overrideConfig?.videoOptionIdx ?? videoOptionIdx;
-    const tSeedanceDuration = overrideConfig?.seedanceDuration ?? seedanceDuration;
     
     if (modelDef && modelDef.options && tOptIdx >= modelDef.options.length) {
         tOptIdx = 0;
@@ -3015,15 +2906,18 @@ const App = () => {
     const tKlingKeepSound = overrideConfig?.klingKeepSound ?? klingKeepSound;
     const tKlingDubVol = overrideConfig?.klingDubVol ?? klingDubVol;
     const tKlingSrcVol = overrideConfig?.klingSrcVol ?? klingSrcVol;
+    const tHappyHorseWatermark = overrideConfig?.happyHorseWatermark ?? happyHorseWatermark;
+    const tHappyHorseAudio = overrideConfig?.happyHorseAudio ?? happyHorseAudio;
+    const tHappyHorseDuration = overrideConfig?.happyHorseDuration ?? happyHorseDuration;
 
     for (let i = 0; i < count; i++) {
       placeholders.push({
         id: generateUUID(), url: '', type: 'video', prompt: tPrompt || '(无提示词)',
         modelId: tModelId, modelName: modelDef!.name,
-        durationText: tModelId === 'seedance-2.0' ? `${tSeedanceDuration}s` : `${(modelDef!.options[tOptIdx] as any).s === 'AUTO' ? 'Auto' : (modelDef!.options[tOptIdx] as any).s + 's'}`,
+        durationText: `${(modelDef!.options[tOptIdx] as any).s === 'AUTO' ? 'Auto' : (modelDef!.options[tOptIdx] as any).s + 's'}`,
         genTimeLabel: '生成中...',
         timestamp: startTime, status: 'loading',
-        config: { modelId: tModelId, videoRatio: tRatio, videoOptionIdx: tOptIdx, prompt: tPrompt, referenceImages: [...tRefs], referenceVideos: [...tRefVideos], referenceAudios: [...tRefAudios], type: 'video', isKlingMode: isKlingModel, isSyncAudio: tSyncAudio, klingOrientation: tKlingOrientation, klingKeepSound: tKlingKeepSound, klingDubVol: tKlingDubVol, klingSrcVol: tKlingSrcVol, seedanceDuration: tSeedanceDuration }
+        config: { modelId: tModelId, videoRatio: tRatio, videoOptionIdx: tOptIdx, prompt: tPrompt, referenceImages: [...tRefs], referenceVideos: [...tRefVideos], referenceAudios: [...tRefAudios], type: 'video', isKlingMode: isKlingModel, isSyncAudio: tSyncAudio, klingOrientation: tKlingOrientation, klingKeepSound: tKlingKeepSound, klingDubVol: tKlingDubVol, klingSrcVol: tKlingSrcVol, happyHorseWatermark: tHappyHorseWatermark, happyHorseAudio: tHappyHorseAudio, happyHorseDuration: tHappyHorseDuration }
       });
     }
     setGeneratedAssets(prev => [...placeholders, ...prev]);
@@ -3036,7 +2930,83 @@ const App = () => {
                 const isVeoModel = apiModelId.startsWith('veo3.1');
                 const isGrokModel = apiModelId.startsWith('grok');
                 const isJimengModel = apiModelId.startsWith('jimeng');
-                
+                const isHappyHorseModel = apiModelId.startsWith('happyhorse');
+
+                if (isHappyHorseModel) {
+                    let actualModelId = 'happyhorse-1.0';
+                    if (apiModelId === 'happyhorse-1.0') {
+                        if (tRefVideos && tRefVideos.length > 0) {
+                            actualModelId = 'happyhorse-1.0-video-edit';
+                        } else if (tRefs && tRefs.length >= 2) {
+                            actualModelId = 'happyhorse-1.0-r2v';
+                        } else if (tRefs && tRefs.length === 1) {
+                            actualModelId = 'happyhorse-1.0-i2v';
+                        } else {
+                            actualModelId = 'happyhorse-1.0-t2v';
+                        }
+                    } else {
+                        actualModelId = apiModelId;
+                    }
+                    const payload: any = {
+                        model: actualModelId,
+                        input: {
+                            prompt: tPrompt,
+                        },
+                        parameters: {
+                            resolution: (modelDef!.options[tOptIdx] as any).q === '720P' ? '720P' : '1080P',
+                            ratio: tRatio,
+                            watermark: tHappyHorseWatermark,
+                            duration: tHappyHorseDuration
+                        }
+                    };
+
+                    if (actualModelId === 'happyhorse-1.0-video-edit') {
+                        if (tRefVideos && tRefVideos.length > 0) {
+                            payload.input.video_url = tRefVideos[0].data.startsWith('http') ? tRefVideos[0].data : `data:${tRefVideos[0].mimeType};base64,${tRefVideos[0].data}`;
+                        }
+                        if (tRefs && tRefs.length > 0) {
+                            payload.input.img_urls = tRefs.map((img: any) => img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`);
+                        }
+                    } else if (actualModelId === 'happyhorse-1.0-r2v') {
+                        payload.input.media = tRefs.map((img: any) => ({
+                            type: 'reference_image',
+                            url: img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`
+                        }));
+                    } else if (actualModelId === 'happyhorse-1.0-i2v') {
+                        if (tRefs && tRefs.length > 0) {
+                            payload.input.img_url = tRefs[0].data.startsWith('http') ? tRefs[0].data : `data:${tRefs[0].mimeType};base64,${tRefs[0].data}`;
+                        }
+                    }
+
+                    if (tRefVideos && tRefVideos.length > 0) {
+                        payload.parameters.audio_setting = tHappyHorseAudio;
+                    }
+
+                    response = await fetch(`${config.baseUrl}/alibailian/api/v1/services/aigc/video-generation/video-synthesis`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json', 
+                            'Authorization': `Bearer ${key}`, 
+                            'Accept': 'application/json',
+                            'X-DashScope-Async': 'enable'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.message || data.error?.message || "Happy Horse生成失败");
+                    
+                    const tid = data.task_id || data.data?.task_id || data.output?.task_id;
+                    if (!tid) throw new Error("No Task ID returned from Happy Horse API");
+                    
+                    const updatedAsset: any = { ...placeholders.find(x => x.id === pId), status: 'queued', taskId: tid };
+                    setGeneratedAssets(prev => prev.map(a => a.id === pId ? updatedAsset : a));
+                    saveAssetToDB(updatedAsset);
+                    
+                    startVideoPolling(tid, pId, startTime, actualModelId);
+                    return;
+                }
+
                 if (apiModelId === 'kling-motion-control') {
                     if (tRefs.length === 0) throw new Error("请上传一张参考图片 (Image Required)");
                     if (tRefVideos.length === 0) throw new Error("请上传参考视频 (Video Required)");
@@ -3163,11 +3133,7 @@ const App = () => {
                     formData.append('model', apiModelId);
                     formData.append('prompt', tPrompt);
                     
-                    if (apiModelId === 'seedance-2.0') {
-                        formData.append('seconds', tSeedanceDuration.toString());
-                    } else {
-                        formData.append('seconds', (modelDef!.options[tOptIdx] as any).s);
-                    }
+                    formData.append('seconds', (modelDef!.options[tOptIdx] as any).s);
                     
                     formData.append('size', tRatio.replace(':', 'x'));
                     formData.append('watermark', 'false');
@@ -3182,33 +3148,6 @@ const App = () => {
                                     blob = base64ToBlob(img.data, img.mimeType);
                                 }
                                 if (blob) formData.append('input_reference', blob, `图片 ${i+1}.png`);
-                        }
-                    }
-
-                    if (apiModelId === 'seedance-2.0') {
-                        if (tRefVideos && tRefVideos.length > 0) {
-                            for (let i = 0; i < tRefVideos.length; i++) {
-                                    const vid = tRefVideos[i];
-                                    let blob: Blob | null = null;
-                                    if (vid.data.startsWith('http')) {
-                                        blob = await urlToBlob(vid.data);
-                                    } else {
-                                        blob = base64ToBlob(vid.data, vid.mimeType);
-                                    }
-                                    if (blob) formData.append('input_reference', blob, `视频 ${i+1}.mp4`);
-                            }
-                        }
-                        if (tRefAudios && tRefAudios.length > 0) {
-                            for (let i = 0; i < tRefAudios.length; i++) {
-                                    const aud = tRefAudios[i];
-                                    let blob: Blob | null = null;
-                                    if (aud.data.startsWith('http')) {
-                                        blob = await urlToBlob(aud.data);
-                                    } else {
-                                        blob = base64ToBlob(aud.data, aud.mimeType);
-                                    }
-                                    if (blob) formData.append('input_reference', blob, `音频 ${i+1}.mp3`);
-                            }
                         }
                     }
 
@@ -3342,13 +3281,7 @@ const App = () => {
     let tSize = overrideConfig?.imageSize ?? imageSize;
     const tQuality = overrideConfig?.imageQuality ?? imageQuality;
     
-    if (tModelId === 'grok-4-image') {
-        if (tRatio === '1:1') tSize = '1080x1080';
-        else if (tRatio === '2:3') tSize = '784x1168';
-        else if (tRatio === '3:2') tSize = '1168x784';
-        else if (tRatio === '9:16') tSize = '1080x1980';
-        else if (tRatio === '16:9') tSize = '1980x1080';
-    } else if (tModelId === 'grok-imagine-image') {
+    if (tModelId === 'grok-imagine-image') {
         if (tRatio === '1:1') tSize = '1024x1024';
         else if (tRatio === '4:3') tSize = '1440x1080';
         else if (tRatio === '9:16') tSize = '1080x1920';
@@ -3485,56 +3418,12 @@ const App = () => {
                     }
                     url = findImageUrlInObject(data2) || findImageUrlInObject(data2.choices?.[0]?.message?.content) || '';
                 }
-            } else if (tModelId === 'grok-imagine-image' && tRefs && tRefs.length > 0) {
+            } else if (tModelId === 'grok-imagine-image' && tRefs && tRefs.length === 1) {
+                // Use formData and /edits for single reference image (Grok)
                 const formData = new FormData();
                 formData.append('model', tModelId);
                 formData.append('prompt', tPrompt);
                 
-                const img = tRefs[0];
-                let blob: Blob;
-                if (img.data.startsWith('http')) {
-                    const imgRes = await fetch(img.data);
-                    blob = await imgRes.blob();
-                } else {
-                    const imgRes = await fetch(`data:${img.mimeType};base64,${img.data}`);
-                    blob = await imgRes.blob();
-                }
-                formData.append('image', blob, 'reference_image.png');
-
-                const res = await fetch(`${config.baseUrl}/v1/images/edits`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${key}` },
-                    body: formData
-                });
-                const data = await res.json();
-                if (!res.ok || data.error) {
-                    throw new Error(`Image Edit Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
-                }
-                url = findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '';
-            } else if ((tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2') && tRefs && tRefs.length > 0) {
-                // MiniMax Image Edit logic
-                const formData = new FormData();
-                formData.append('model', tModelId);
-                formData.append('prompt', tPrompt);
-                formData.append('n', '1');
-                
-                if (tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-all') {
-                    const targetSize = tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024');
-                    formData.append('size', targetSize);
-                    if (tModelId === 'gpt-image-2') {
-                        const targetQuality = tQuality || 'auto';
-                        formData.append('quality', targetQuality);
-                    }
-                } else {
-                    formData.append('size', tSize === 'AUTO' ? (tRatio === '3:2' ? '1536x1024' : tRatio === '2:3' ? '1024x1536' : '1024x1024') : tSize);
-                }
-                
-                // Add moderation parameter if supported
-                formData.append('safety_level', 'low');
-                formData.append('safety_setting', 'low');
-                formData.append('moderation', 'low');
-
-                // Assuming only the first image is used for standard edit if multiple are not supported as files
                 const img = tRefs[0];
                 let blob: Blob;
                 if (img.data.startsWith('http')) {
@@ -3556,52 +3445,58 @@ const App = () => {
                 });
                 const data = await res.json();
                 if (!res.ok || data.error) {
-                    throw new Error(`GPT-2 Edit Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                    throw new Error(`Image Edit Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
                 }
                 let b64 = data.data?.[0]?.b64_json;
-                if (b64) {
-                    url = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
-                } else {
-                    url = findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '';
-                }
-            } else if (tModelId === 'gpt-image-2') {
-                const targetQuality = tQuality || 'auto';
-                const targetSize = tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024');
-
-                const bodyPayload: any = {
-                    model: tModelId,
-                    prompt: tPrompt,
-                    n: 1,
-                    quality: targetQuality,
-                    size: targetSize,
-                    safety_level: 'low',
-                    safety_setting: 'low',
-                    moderation: 'low'
-                };
+                url = b64 ? (b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`) : (findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '');
+            } else if ((tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-all') && tRefs && tRefs.length > 0) {
+                // GPT-2 Image Edit supports multiple reference images via FormData
+                const formData = new FormData();
+                formData.append('model', tModelId);
+                formData.append('prompt', tPrompt);
+                formData.append('n', '1');
                 
-                // removed tRefs logic here because it's handled by the /edits block above if tRefs exists
-                const res = await fetch(`${config.baseUrl}/v1/images/generations`, {
+                const targetSize = tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024');
+                formData.append('size', targetSize);
+                
+                if (tModelId === 'gpt-image-2') {
+                    formData.append('quality', tQuality || 'auto');
+                }
+                formData.append('safety_level', 'low');
+                formData.append('moderation', 'low');
+
+                for (const img of tRefs) {
+                    let blob: Blob;
+                    if (img.data.startsWith('http')) {
+                        const imgRes = await fetch(img.data);
+                        blob = await imgRes.blob();
+                    } else {
+                        const b64 = img.data.includes(',') ? img.data.split(',')[1] : img.data;
+                        const byteCharacters = atob(b64);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        blob = new Blob([new Uint8Array(byteNumbers)], { type: (img.mimeType || 'image/png') });
+                    }
+                    formData.append('image', blob, 'image.png');
+                }
+
+                const res = await fetch(`${config.baseUrl}/v1/images/edits`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
-                    body: JSON.stringify(bodyPayload)
+                    headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
+                    body: formData
                 });
                 const data = await res.json();
                 if (!res.ok || data.error) {
-                    throw new Error(`GPT-2 API Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                    throw new Error(`GPT-2 Edit Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
                 }
-                
                 let b64 = data.data?.[0]?.b64_json;
-                if (b64) {
-                    url = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
-                } else {
-                    url = findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '';
-                }
-            } else if (tModelId === 'grok-imagine-image' || tModelId === 'doubao-seedream-5-0-260128' || tModelId === 'gpt-image-2-all') {
+                url = b64 ? (b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`) : (findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '');
+            } else if (tModelId === 'grok-imagine-image' || tModelId === 'doubao-seedream-5-0-260128' || tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2') {
                 const bodyPayload: any = {
                     model: tModelId,
                     prompt: tPrompt,
                     n: 1,
-                    size: tModelId === 'gpt-image-2-all'
+                    size: (tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2')
                           ? (tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024'))
                           : (tSize === 'AUTO' ? undefined : tSize),
                     response_format: 'url',
@@ -3609,12 +3504,16 @@ const App = () => {
                     safety_setting: 'low',
                     moderation: 'low'
                 };
+                if (tModelId === 'gpt-image-2') {
+                    bodyPayload.quality = tQuality || 'auto';
+                }
                 if (tModelId === 'doubao-seedream-5-0-260128') {
                     bodyPayload.aspect_ratio = tRatio;
                 }
-                if (tRefs && tRefs.length > 0 && tModelId !== 'gpt-image-2-all') {
+                if (tRefs && tRefs.length > 0) {
                     const images = tRefs.map((img: ReferenceImage) => img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`);
-                    bodyPayload.image = images.length === 1 ? images[0] : images;
+                    bodyPayload.img_urls = images; // Support multiple reference images
+                    bodyPayload.image = images[0]; // Compatibility
                 }
                 const res = await fetch(`${config.baseUrl}/v1/images/generations`, {
                     method: 'POST',
@@ -3637,11 +3536,7 @@ const App = () => {
                     stream: false,
                     aspect_ratio: tRatio
                 };
-                if (tModelId === 'grok-4-image') {
-                    delete bodyPayload.aspect_ratio;
-                    bodyPayload.size = tSize;
-                    bodyPayload.resolution = tSize;
-                } else if (tSize && tSize !== 'AUTO') { 
+                if (tSize && tSize !== 'AUTO') { 
                     bodyPayload.size = tSize; 
                     bodyPayload.resolution = tSize; 
                 }
@@ -3828,7 +3723,9 @@ const App = () => {
            setSelectedVideoModel(asset.config.modelId);
            setVideoRatio(asset.config.videoRatio);
            setVideoOptionIdx(asset.config.videoOptionIdx);
-           if (asset.config.seedanceDuration) setSeedanceDuration(asset.config.seedanceDuration);
+           if (asset.config.happyHorseWatermark !== undefined) setHappyHorseWatermark(asset.config.happyHorseWatermark);
+           if (asset.config.happyHorseAudio !== undefined) setHappyHorseAudio(asset.config.happyHorseAudio);
+           if (asset.config.happyHorseDuration !== undefined) setHappyHorseDuration(asset.config.happyHorseDuration);
            executeVideoGeneration(asset.config);
         }
      }
@@ -3836,11 +3733,6 @@ const App = () => {
 
   const handleAssetEdit = (asset: GeneratedAsset) => {
      if (asset.type === 'video') {
-        if (asset.modelId.includes('sora-2')) {
-            setRemixingAsset(asset);
-            setRemixPrompt(''); // User requested no preset prompt
-            setActiveModal('video-remix');
-        }
         return;
      }
 
@@ -3941,8 +3833,9 @@ const App = () => {
       <div className="flex-1 flex flex-col min-w-0 h-full relative">
         {/* Shared Header */}
         <header className="bg-brand-yellow pl-2 pr-5 border-b-2 border-black h-12 flex items-center justify-between z-30 shrink-0">
-           <div className="flex items-center gap-4">
-             <h1 className="text-2xl font-bold italic tracking-tight text-black">{APP_CONFIG.APP_NAME}</h1>
+           <div className="flex items-center gap-2 sm:gap-4">
+             <h1 className="text-2xl font-bold italic tracking-tight text-black shrink-0">{APP_CONFIG.APP_NAME}</h1>
+             <span className="text-xs md:text-sm text-gray-800 font-normal shrink-0">
            </div>
            <div className="flex items-center gap-1 md:gap-2">
                 <button onClick={() => setActiveModal('settings')} title="系统设置" className="w-10 h-10 md:w-11 md:h-11 flex items-center justify-center text-black hover:text-brand-red transition-colors">
@@ -4258,11 +4151,10 @@ const App = () => {
                               <h3 className={labelClass}>
                                   {(() => {
                                       if (isVideoMode) {
-                                          if (selectedVideoModel === 'seedance-2.0') return '参考图片（限9张）';
                                           if (selectedVideoModel.includes('components')) return '参考底稿（可选）多图融合';
                                           if (selectedVideoModel.startsWith('veo')) return '参考底稿（可选）首尾帧';
-                                          const limit = (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') ? '1' : '1';
-                                          return `参考底稿 (可选) (限${limit}张)`;
+                                          const limit = currentVideoModel?.maxImages ?? 1;
+                                          return `参考底稿 (可选1-${limit}张)`;
                                       }
                                       return '参考底稿 (可选)';
                                   })()}
@@ -4283,10 +4175,8 @@ const App = () => {
                                             <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] text-center uppercase py-0.5">
                                                 {(() => {
                                                     if (isVideoMode) {
-                                                        if (selectedVideoModel.includes('components')) return `图${idx + 1}`;
                                                         if (selectedVideoModel.startsWith('veo')) return idx === 0 ? '首帧' : '尾帧';
-                                                        if (selectedVideoModel === 'seedance-2.0') return `图${idx + 1}`;
-                                                        return 'REF';
+                                                        return `图${idx + 1}`;
                                                     }
                                                     return `图${idx + 1}`;
                                                 })()}
@@ -4297,97 +4187,75 @@ const App = () => {
                                             </button>
                                             </div>
                                         ))}
-                                        {((!isVideoMode ? referenceImages.length < (MODELS.find(m => m.id === selectedModel)?.maxReferenceImages ?? MODELS.find(m => m.id === selectedModel)?.maxImages ?? 4) : referenceImages.length < (selectedVideoModel === 'seedance-2.0' ? 9 : (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control' ? 1 : (selectedVideoModel.includes('components') ? 3 : (selectedVideoModel.startsWith('veo')) ? 2 : 1))))) && (
+                                        {((!isVideoMode ? referenceImages.length < (MODELS.find(m => m.id === selectedModel)?.maxReferenceImages ?? MODELS.find(m => m.id === selectedModel)?.maxImages ?? 4) : referenceImages.length < (selectedVideoModel === 'happyhorse-1.0' && referenceVideos.length > 0 ? 5 : (currentVideoModel?.maxImages ?? (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control' ? 1 : (selectedVideoModel.includes('components') ? 3 : (selectedVideoModel.startsWith('veo')) ? 2 : 1)))))) && (
                                             <label className="w-24 h-24 border border-black flex items-center justify-center cursor-pointer bg-white brutalist-shadow-sm">
-                                            <Plus className="w-6 h-6" /><input type="file" multiple={!isVideoMode || selectedVideoModel === 'seedance-2.0' || selectedVideoModel.startsWith('veo')} accept=".jpg, .jpeg, .png" className="hidden" onChange={handleImageUpload} />
+                                            <Plus className="w-6 h-6" /><input type="file" multiple={!isVideoMode || selectedVideoModel.startsWith('veo')} accept=".jpg, .jpeg, .png" className="hidden" onChange={handleImageUpload} />
                                             </label>
                                         )}
                                     </div>
                                 ) : (
                                     <label className="w-full py-2.5 flex flex-col items-center justify-center bg-brand-purple text-white border border-black brutalist-shadow-sm cursor-pointer font-normal uppercase text-sm hover:translate-y-1 hover:shadow-none transition-all">
-                                        <input type="file" multiple={!isVideoMode || selectedVideoModel === 'seedance-2.0' || selectedVideoModel.startsWith('veo')} accept=".jpg, .jpeg, .png" className="hidden" onChange={handleImageUpload} />
+                                        <input type="file" multiple={!isVideoMode || selectedVideoModel.startsWith('veo')} accept=".jpg, .jpeg, .png" className="hidden" onChange={handleImageUpload} />
                                         {isVideoMode && selectedVideoModel === 'kling-motion-control' ? "添加人物图" : "上传图片/UPLOAD"}
                                     </label>
                                 )
                             )}
                             
                             {/* ... (Video warning and audio upload same) */}
-                            {/* Videos Section for Seedance 2.0 */}
-                            {isVideoMode && selectedVideoModel === 'seedance-2.0' && (
-                                <div className="mt-2 pt-2 border-t border-black/10">
-                                    <label className={labelClass}>参考视频（限3个，总时长≤ 15秒） {referenceVideos.length > 0 && <span className="text-brand-green text-[10px]"><Check className="inline w-3 h-3"/> {referenceVideos.length}/3</span>}</label>
+                            
+                            {/* Happy Horse Video Upload Support */}
+                            {isVideoMode && currentVideoModel?.maxVideos && currentVideoModel.maxVideos > 0 && selectedVideoModel !== 'kling-motion-control' && (
+                                <div className={`mt-2 pt-2 border-t border-black/10`}>
+                                    <label className={labelClass}>参考视频 (VIDEO REFERENCE) {referenceVideos.length > 0 && <span className="text-brand-green text-xs font-normal flex items-center gap-1"><Check className="w-3 h-3"/></span>}</label>
                                     {referenceVideos.length > 0 ? (
-                                        <div className="flex gap-3 overflow-x-auto pb-1.5 pt-2 pr-4 pl-1">
-                                            {referenceVideos.map((vid, idx) => (
-                                                <div key={vid.id} className="relative w-32 h-24 border border-black bg-white brutalist-shadow-sm flex-shrink-0 cursor-pointer group">
-                                                    <video src={vid.data.startsWith('http') ? vid.data : `data:${vid.mimeType};base64,${vid.data}`} className="w-full h-full object-cover" />
-                                                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] text-center uppercase py-0.5">
-                                                        视频 {idx + 1}
+                                        <div className="relative w-full border border-black bg-white brutalist-shadow-sm p-2 group">
+                                             <div className="flex items-center justify-between mb-2">
+                                                 <span className="text-xs font-normal truncate max-w-[200px] bg-slate-100 px-2 py-0.5 border border-black/20 rounded-sm">VIDEO REFERENCE</span>
+                                                 <button onClick={() => setReferenceVideos([])} className="bg-brand-red text-white border border-black w-6 h-6 flex items-center justify-center hover:scale-110 transition-transform">
+                                                    <X className="w-3 h-3"/>
+                                                 </button>
+                                             </div>
+                                             <div className="relative bg-black border border-black h-32 flex items-center justify-center overflow-hidden">
+                                                <video 
+                                                    src={referenceVideos[0].data.startsWith('http') ? referenceVideos[0].data : `data:${referenceVideos[0].mimeType};base64,${referenceVideos[0].data}`} 
+                                                    className="w-full h-full object-contain" 
+                                                    controls
+                                                />
+                                                {referenceVideos[0].uploadStatus === 'uploading' && (
+                                                    <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-white z-20">
+                                                        <Loader2 className="w-8 h-8 animate-spin mb-2"/>
+                                                        <span className="text-xs font-normal uppercase">UPLOADING...</span>
                                                     </div>
-                                                    <button onClick={(e) => { e.stopPropagation(); removeReferenceVideo(vid.id); }} 
-                                                            className="absolute -top-2.5 -right-2.5 bg-brand-red text-white border border-black w-6 h-6 flex items-center justify-center hover:scale-110 transition-transform brutalist-shadow-sm z-10">
-                                                        <X className="w-4 h-4"/>
-                                                    </button>
-                                                </div>
-                                            ))}
-                                            {referenceVideos.length < 3 && (
-                                                <label className="w-24 h-24 border border-black flex items-center justify-center cursor-pointer bg-white brutalist-shadow-sm flex-shrink-0">
-                                                    <Plus className="w-6 h-6" /><input type="file" multiple accept="video/mp4,video/quicktime" className="hidden" onChange={handleVideoUpload} />
-                                                </label>
-                                            )}
+                                                )}
+                                                {referenceVideos[0].uploadStatus === 'failed' && (
+                                                    <div className="absolute inset-0 bg-red-900/80 flex flex-col items-center justify-center text-white z-20">
+                                                        <X className="w-8 h-8 mb-2"/>
+                                                        <span className="text-xs font-normal uppercase">UPLOAD FAILED</span>
+                                                    </div>
+                                                )}
+                                             </div>
                                         </div>
                                     ) : (
-                                        <label className="mt-2 w-full py-2.5 flex flex-col items-center justify-center bg-brand-blue text-white border border-black brutalist-shadow-sm cursor-pointer font-normal uppercase text-sm hover:translate-y-1 hover:shadow-none transition-all">
-                                            <input type="file" multiple accept="video/mp4,video/quicktime" className="hidden" onChange={handleVideoUpload} />
-                                            上传视频/UPLOAD VIDEO
+                                        <label className="w-full py-2.5 flex flex-col items-center justify-center bg-brand-blue text-white border border-black brutalist-shadow-sm cursor-pointer font-normal uppercase text-sm hover:translate-y-1 hover:shadow-none transition-all">
+                                            <span>上传参考视频 / UPLOAD VIDEO</span>
+                                            <input type="file" accept="video/mp4,video/quicktime" className="hidden" onChange={handleVideoUpload} />
                                         </label>
+                                    )}
+                                    {isVideoMode && selectedVideoModel === 'happyhorse-1.0' && (
+                                        <div className="mt-2 space-y-0.5">
+                                            <div className="text-xs font-normal uppercase text-black leading-tight">源视频≤15 秒：按原视频时长生成；</div>
+                                            <div className="text-xs font-normal uppercase text-black leading-tight">源视频＞15 秒：截取前 15 秒，固定生成 15 秒视频。</div>
+                                            <div className="text-xs font-normal uppercase text-black leading-tight">视频编辑模式支持上传1个视频+1-5张参考图。</div>
+                                        </div>
                                     )}
                                 </div>
                             )}
 
-                            {/* Audios Section for Seedance 2.0 */}
-                            {isVideoMode && selectedVideoModel === 'seedance-2.0' && (
-                                <div className="mt-2 pt-2 border-t border-black/10">
-                                    <label className={labelClass}>参考音频（限3个，总时长 ≤ 15 秒） {referenceAudios.length > 0 && <span className="text-brand-green text-[10px]"><Check className="inline w-3 h-3"/> {referenceAudios.length}/3</span>}</label>
-                                    {referenceAudios.length > 0 ? (
-                                        <div className="flex flex-col gap-2 mt-2">
-                                            {referenceAudios.map((aud, idx) => (
-                                                <div key={aud.id} className="relative p-2 bg-white border border-black brutalist-shadow-sm flex items-center gap-2">
-                                                    <div className="w-8 h-8 bg-brand-yellow flex items-center justify-center border border-black shrink-0">
-                                                        <Music className="w-4 h-4" />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="text-xs font-bold truncate">音频 {idx + 1}</div>
-                                                        <div className="text-[10px] text-slate-500 truncate">{aud.name} ({Math.round(aud.duration)}s)</div>
-                                                    </div>
-                                                    <button onClick={() => removeReferenceAudio(aud.id)} className="bg-brand-red text-white p-1 border border-black hover:scale-110 transition-transform shrink-0">
-                                                        <X className="w-3 h-3" />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                            {referenceAudios.length < 3 && (
-                                                <label className="w-full py-2 flex flex-col items-center justify-center bg-brand-blue text-white border border-black brutalist-shadow-sm cursor-pointer font-normal uppercase text-xs hover:translate-y-1 hover:shadow-none transition-all">
-                                                    <input type="file" multiple accept="audio/*" className="hidden" onChange={handleAudioUpload} />
-                                                    <Plus className="w-4 h-4 inline mr-1"/> 添加音频/ADD AUDIO
-                                                </label>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <label className="mt-2 w-full py-2.5 flex flex-col items-center justify-center bg-brand-blue text-white border border-black brutalist-shadow-sm cursor-pointer font-normal uppercase text-sm hover:translate-y-1 hover:shadow-none transition-all">
-                                            <input type="file" multiple accept="audio/*" className="hidden" onChange={handleAudioUpload} />
-                                            上传音频/UPLOAD AUDIO
-                                        </label>
-                                    )}
-                                </div>
-                            )}
-                            
-                            {isVideoMode && selectedVideoModel !== 'grok-video-3' && selectedVideoModel !== 'grok-videos' && selectedVideoModel !== 'kling-avatar-image2video' && (
+                            {isVideoMode && selectedVideoModel !== 'grok-video-3' && selectedVideoModel !== 'grok-videos' && selectedVideoModel !== 'kling-avatar-image2video' && !selectedVideoModel.startsWith('happyhorse') && (
                                 <div className="text-xs text-brand-red font-normal mt-1">
                                     {(() => {
-                                        if (selectedVideoModel === 'seedance-2.0') return '请勿上传真人，混合上传文件总数≤12个';
-                                        if (selectedVideoModel === 'sora-2-all' || selectedVideoModel === 'sora-2-pro-all' || selectedVideoModel === 'sora-2' || selectedVideoModel === 'sora-2-vip-all') return '请勿上传真人';
                                         if (selectedVideoModel.startsWith('veo')) return '请勿上传未成年';
-                                        return 'Sora2请勿上传真人，Veo请勿上传未成年';
+                                        return '请勿上传违规人物，Veo请勿上传未成年';
                                     })()}
                                 </div>
                             )}
@@ -4463,6 +4331,12 @@ const App = () => {
                   >
                     {(!isVideoMode && !isAudioMode ? MODELS : (isAudioMode ? AUDIO_MODELS : VIDEO_MODELS)).map(m => <option key={m.id} value={m.id}>{m.name.toUpperCase()}</option>)}
                   </select>
+                  {isVideoMode && selectedVideoModel === 'grok-video-3' && (
+                    <div className="mt-1.5 space-y-0.5">
+                        <p className="text-brand-red text-xs font-normal">1、该模型全网都极不稳定，暂无好的解决办法；</p>
+                        <p className="text-brand-red text-xs font-normal">2、令牌可多添加一个“限时体验”分组，增加该模型的成功率；</p>
+                    </div>
+                  )}
                 </div>
 
                 {isAudioMode && (
@@ -4585,9 +4459,9 @@ const App = () => {
                             <div className="grid grid-cols-2 gap-2.5">
                                 {/* Hide Aspect Ratio for Kling Avatar or Motion Control */}
                                 {!(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') && (
-                                    <div className="space-y-1">
-                                        <label className={labelClass}>比例 ASPECT</label>
-                                        <select value={videoRatio} onChange={(e) => setVideoRatio(e.target.value)} className={selectClass}>
+                                    <div className={`space-y-1 ${selectedVideoModel === 'happyhorse-1.0' && referenceVideos.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+                                        <label className={labelClass}>比例 ASPECT {selectedVideoModel === 'happyhorse-1.0' && referenceVideos.length > 0 && <span className="text-[10px] lowercase">(跟随原视频)</span>}</label>
+                                        <select value={videoRatio} onChange={(e) => setVideoRatio(e.target.value)} disabled={selectedVideoModel === 'happyhorse-1.0' && referenceVideos.length > 0} className={selectClass}>
                                             {(currentVideoModel)?.supportedAspectRatios.map(r => <option key={r} value={r}>{ASPECT_RATIO_LABELS[r] || r}</option>)}
                                         </select>
                                     </div>
@@ -4595,7 +4469,7 @@ const App = () => {
                                 
                                 <div className={`space-y-1`}>
                                 <label className={labelClass}>
-                                    {selectedVideoModel === 'kling-avatar-image2video' ? '质量 QUALITY' : '时长/质量 DURATION'}
+                                    {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'happyhorse-1.0') ? '质量 QUALITY' : '时长/质量 DURATION'}
                                 </label>
                                 <select value={videoOptionIdx} onChange={(e) => setVideoOptionIdx(parseInt(e.target.value))} className={selectClass}>
                                     {selectedVideoModel === 'kling-avatar-image2video' ? (
@@ -4606,7 +4480,7 @@ const App = () => {
                                     ) : (
                                         currentVideoModel?.options.map((opt, idx) => (
                                             <option key={idx} value={idx} disabled={(isSyncAudio && opt.q === '标准模式') || (opt as any).disabled}>
-                                                {(opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S'} ({opt.q})
+                                                {selectedVideoModel === 'happyhorse-1.0' ? opt.q : ((opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S') + ` (${opt.q})`}
                                             </option>
                                         ))
                                     )}
@@ -4615,22 +4489,56 @@ const App = () => {
                             </div>
                         )}
                         
-                        {/* Seedance Slider */}
-                        {selectedVideoModel === 'seedance-2.0' && (
-                             <div className="space-y-1 mt-2">
-                                <label className={labelClass}>视频时长 DURATION (4-15S)</label>
-                                <div className="flex items-center gap-2.5 bg-white border border-black p-1.5 brutalist-shadow-sm h-10">
-                                    <input type="range" min="4" max="15" value={seedanceDuration} onChange={(e) => setSeedanceDuration(parseInt(e.target.value))} className="flex-1 accent-black h-4" />
-                                    <span className="font-normal text-black text-xs">{seedanceDuration}S</span>
-                                </div>
-                            </div>
-                        )}
                     </>
                 )}
                 
                 {/* Render Generation Count separately if NOT Motion Control or Avatar (since they are handled above) */}
                 {!(isVideoMode && (selectedVideoModel === 'kling-motion-control' || selectedVideoModel === 'kling-avatar-image2video')) && !isAudioMode && (
                     <div className="space-y-1">
+                        {/* Happy Horse Slider */}
+                        {isVideoMode && selectedVideoModel === 'happyhorse-1.0' && (
+                             <>
+                                 <div className={`space-y-1 mb-2 ${referenceVideos.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+                                    <label className={labelClass}>视频时长 DURATION (3-15S) {referenceVideos.length > 0 && <span className="text-[10px] lowercase">(跟随原视频)</span>}</label>
+                                    <div className="flex items-center gap-2.5 bg-white border border-black p-1.5 brutalist-shadow-sm h-10">
+                                        <input type="range" min="3" max="15" value={happyHorseDuration} onChange={(e) => setHappyHorseDuration(parseInt(e.target.value))} disabled={referenceVideos.length > 0} className="flex-1 accent-black h-4" />
+                                        <span className="font-normal text-black text-xs">{happyHorseDuration}S</span>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2.5 mb-2">
+                                    <div className={`space-y-1 transition-opacity ${referenceVideos.length > 0 ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                        <label className={labelClass}>音频设置 AUDIO</label>
+                                        <div className="flex border border-black bg-white brutalist-shadow-sm h-10">
+                                            <button 
+                                                onClick={() => setHappyHorseAudio('auto')}
+                                                disabled={referenceVideos.length === 0}
+                                                className={`flex-1 py-1.5 text-sm font-normal transition-colors ${happyHorseAudio === 'auto' ? 'bg-brand-yellow text-black' : 'hover:bg-slate-100'}`}
+                                            >
+                                                Auto
+                                            </button>
+                                            <div className="w-px bg-black"></div>
+                                            <button 
+                                                onClick={() => setHappyHorseAudio('origin')}
+                                                disabled={referenceVideos.length === 0}
+                                                className={`flex-1 py-1.5 text-sm font-normal transition-colors ${happyHorseAudio === 'origin' ? 'bg-brand-yellow text-black' : 'hover:bg-slate-100'}`}
+                                            >
+                                                Origin
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className={labelClass}>水印 WATERMARK</label>
+                                        <label className={`flex items-center justify-center gap-2 cursor-pointer border border-black h-10 brutalist-shadow-sm transition-all ${happyHorseWatermark ? 'bg-brand-yellow text-black' : 'bg-white hover:bg-slate-50'}`}>
+                                            <input type="checkbox" checked={happyHorseWatermark} onChange={(e) => setHappyHorseWatermark(e.target.checked)} className="hidden" />
+                                            <span className="text-xs font-normal uppercase">
+                                                {happyHorseWatermark ? '显示 (ON)' : '隐藏 (OFF)'}
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                             </>
+                        )}
+
                         <label className={labelClass}>生成数量 BATCH</label>
                         <div className="flex items-center gap-2.5 bg-white border border-black p-1.5 brutalist-shadow-sm h-10">
                             <input type="range" min="1" max={10} value={generationCount} onChange={(e) => setGenerationCount(parseInt(e.target.value))} className="flex-1 accent-black h-4" />
@@ -4779,6 +4687,9 @@ const App = () => {
             
             {!isChatMode && !isProxyMode && !isResourcesMode && (
               <>
+                <div className="text-center mb-1 mt-1">
+                  <p className="text-brand-red text-sm font-bold tracking-tight">全新高稳定性版本开发中，敬请期待。</p>
+                </div>
                 <button onClick={() => executeGeneration()} className="w-full py-3 bg-brand-red text-white text-xl font-normal border border-black brutalist-shadow hover:translate-y-1.5 hover:shadow-none transition-all uppercase tracking-tighter">
                   开始创作/Start Creating
                 </button>
@@ -4845,7 +4756,7 @@ const App = () => {
                         </button>
                         <div className="overflow-hidden whitespace-nowrap w-full relative">
                             <div className="inline-block animate-marquee text-black text-sm font-normal">
-                                {APP_CONFIG.ANNOUNCEMENT}
+                                公告：1、本应用不储存用户资产，请及时下载；2、生成失败请重新生成，扣费自动返还；3、如遇连续失败，请暂时切换分组或者切换其它模型使用；4、欢迎联系客服提供优化建议。
                             </div>
                         </div>
                     </>
