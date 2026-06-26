@@ -269,6 +269,16 @@ const VIDEO_MODELS = [
       {s: 'AUTO', q: '1080P'}
     ]
   },
+  {
+    id: 'grok-imagine-video',
+    name: 'Grok Imagine Video',
+    desc: '标清视频',
+    maxImages: 1,
+    supportedAspectRatios: ['9:16', '16:9', '2:3', '3:2', '1:1'],
+    options: [
+      {s: 'AUTO', q: '标清'}
+    ]
+  },
   { id: 'veo_3_1-lite', name: 'veo_3_1-lite', desc: '标清/首尾帧(0.35元/次)', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '标清'}] },
   { id: 'veo_3_1-lite-4K', name: 'veo_3_1-lite-4K', desc: '4K/首尾帧(0.385元/次)', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '4K'}] },
   { id: 'veo_3_1-fast', name: 'veo_3_1-fast', desc: '标清/首尾帧', supportedAspectRatios: ['16:9', '9:16'], options: [{s: '8', q: '标清'}] },
@@ -1256,6 +1266,7 @@ const PRICE_DATA = [
       { m: 'veo3.1-components-4k', p: '0.700元/条' },
       { m: 'veo3.1-pro-4k', p: '2.450元/条' },
       { m: 'Grok Video 3', p: '0.280元/6秒，0.280元/10秒' },
+      { m: 'Grok Imagine Video', p: '0.047元/秒' },
       { m: 'Kling Control Std (动作转移)', p: '0.595元/秒' },
       { m: 'Kling Control Pro (动作转移)', p: '0.952元/秒' },
       { m: 'KLING Avatar Std (数字人)', p: '1.190元/秒' },
@@ -1502,6 +1513,7 @@ const App = () => {
   const [happyHorseWatermark, setHappyHorseWatermark] = useState(false);
   const [happyHorseAudio, setHappyHorseAudio] = useState('auto');
   const [happyHorseDuration, setHappyHorseDuration] = useState(8);
+  const [grokImagineDuration, setGrokImagineDuration] = useState(5);
   const [isTransparent, setIsTransparent] = useState(false);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [previewAsset, setPreviewAsset] = useState<GeneratedAsset | null>(null);
@@ -2909,15 +2921,16 @@ const App = () => {
     const tHappyHorseWatermark = overrideConfig?.happyHorseWatermark ?? happyHorseWatermark;
     const tHappyHorseAudio = overrideConfig?.happyHorseAudio ?? happyHorseAudio;
     const tHappyHorseDuration = overrideConfig?.happyHorseDuration ?? happyHorseDuration;
+    const tGrokImagineDuration = overrideConfig?.grokImagineDuration ?? grokImagineDuration;
 
     for (let i = 0; i < count; i++) {
       placeholders.push({
         id: generateUUID(), url: '', type: 'video', prompt: tPrompt || '(无提示词)',
         modelId: tModelId, modelName: modelDef!.name,
-        durationText: `${(modelDef!.options[tOptIdx] as any).s === 'AUTO' ? 'Auto' : (modelDef!.options[tOptIdx] as any).s + 's'}`,
+        durationText: tModelId === 'grok-imagine-video' ? `${tGrokImagineDuration}s` : `${(modelDef!.options[tOptIdx] as any).s === 'AUTO' ? 'Auto' : (modelDef!.options[tOptIdx] as any).s + 's'}`,
         genTimeLabel: '生成中...',
         timestamp: startTime, status: 'loading',
-        config: { modelId: tModelId, videoRatio: tRatio, videoOptionIdx: tOptIdx, prompt: tPrompt, referenceImages: [...tRefs], referenceVideos: [...tRefVideos], referenceAudios: [...tRefAudios], type: 'video', isKlingMode: isKlingModel, isSyncAudio: tSyncAudio, klingOrientation: tKlingOrientation, klingKeepSound: tKlingKeepSound, klingDubVol: tKlingDubVol, klingSrcVol: tKlingSrcVol, happyHorseWatermark: tHappyHorseWatermark, happyHorseAudio: tHappyHorseAudio, happyHorseDuration: tHappyHorseDuration }
+        config: { modelId: tModelId, videoRatio: tRatio, videoOptionIdx: tOptIdx, prompt: tPrompt, referenceImages: [...tRefs], referenceVideos: [...tRefVideos], referenceAudios: [...tRefAudios], type: 'video', isKlingMode: isKlingModel, isSyncAudio: tSyncAudio, klingOrientation: tKlingOrientation, klingKeepSound: tKlingKeepSound, klingDubVol: tKlingDubVol, klingSrcVol: tKlingSrcVol, happyHorseWatermark: tHappyHorseWatermark, happyHorseAudio: tHappyHorseAudio, happyHorseDuration: tHappyHorseDuration, grokImagineDuration: tGrokImagineDuration }
       });
     }
     setGeneratedAssets(prev => [...placeholders, ...prev]);
@@ -3109,6 +3122,9 @@ const App = () => {
 
                     if (isGrokModel) {
                         payload.size = '720P';
+                        if (apiModelId === 'grok-imagine-video') {
+                            payload.duration = tGrokImagineDuration;
+                        }
                     }
 
                     if (isJimengModel) {
@@ -3726,6 +3742,7 @@ const App = () => {
            if (asset.config.happyHorseWatermark !== undefined) setHappyHorseWatermark(asset.config.happyHorseWatermark);
            if (asset.config.happyHorseAudio !== undefined) setHappyHorseAudio(asset.config.happyHorseAudio);
            if (asset.config.happyHorseDuration !== undefined) setHappyHorseDuration(asset.config.happyHorseDuration);
+           if (asset.config.grokImagineDuration !== undefined) setGrokImagineDuration(asset.config.grokImagineDuration);
            executeVideoGeneration(asset.config);
         }
      }
@@ -4250,7 +4267,7 @@ const App = () => {
                                 </div>
                             )}
 
-                            {isVideoMode && selectedVideoModel !== 'grok-video-3' && selectedVideoModel !== 'grok-videos' && selectedVideoModel !== 'kling-avatar-image2video' && !selectedVideoModel.startsWith('happyhorse') && (
+                            {isVideoMode && !selectedVideoModel.startsWith('grok') && selectedVideoModel !== 'kling-avatar-image2video' && !selectedVideoModel.startsWith('happyhorse') && (
                                 <div className="text-xs text-brand-red font-normal mt-1">
                                     {(() => {
                                         if (selectedVideoModel.startsWith('veo')) return '请勿上传未成年';
@@ -4468,7 +4485,7 @@ const App = () => {
                                 
                                 <div className={`space-y-1`}>
                                 <label className={labelClass}>
-                                    {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'happyhorse-1.0') ? '质量 QUALITY' : '时长/质量 DURATION'}
+                                    {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'happyhorse-1.0' || selectedVideoModel === 'grok-imagine-video') ? '质量 QUALITY' : '时长/质量 DURATION'}
                                 </label>
                                 <select value={videoOptionIdx} onChange={(e) => setVideoOptionIdx(parseInt(e.target.value))} className={selectClass}>
                                     {selectedVideoModel === 'kling-avatar-image2video' ? (
@@ -4479,7 +4496,7 @@ const App = () => {
                                     ) : (
                                         currentVideoModel?.options.map((opt, idx) => (
                                             <option key={idx} value={idx} disabled={(isSyncAudio && opt.q === '标准模式') || (opt as any).disabled}>
-                                                {selectedVideoModel === 'happyhorse-1.0' ? opt.q : ((opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S') + ` (${opt.q})`}
+                                                {selectedVideoModel === 'happyhorse-1.0' || selectedVideoModel === 'grok-imagine-video' ? opt.q : ((opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S') + ` (${opt.q})`}
                                             </option>
                                         ))
                                     )}
@@ -4536,6 +4553,17 @@ const App = () => {
                                     </div>
                                 </div>
                              </>
+                        )}
+
+                        {/* Grok Imagine Video Slider */}
+                        {isVideoMode && selectedVideoModel === 'grok-imagine-video' && (
+                             <div className="space-y-1 mb-2">
+                                 <label className={labelClass}>视频时长 DURATION (1-15S)</label>
+                                 <div className="flex items-center gap-2.5 bg-white border border-black p-1.5 brutalist-shadow-sm h-10">
+                                     <input type="range" min="1" max="15" value={grokImagineDuration} onChange={(e) => setGrokImagineDuration(parseInt(e.target.value))} className="flex-1 accent-black h-4" />
+                                     <span className="font-normal text-black text-xs">{grokImagineDuration}S</span>
+                                 </div>
+                             </div>
                         )}
 
                         <label className={labelClass}>生成数量 BATCH</label>
