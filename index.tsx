@@ -3465,6 +3465,48 @@ const App = () => {
                 }
                 let b64 = data.data?.[0]?.b64_json;
                 url = b64 ? (b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`) : (findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '');
+            } else if ((tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-all') && tRefs && tRefs.length > 0) {
+                // GPT-2 Image Edit supports multiple reference images via FormData
+                const formData = new FormData();
+                formData.append('model', tModelId);
+                formData.append('prompt', tPrompt);
+                formData.append('n', '1');
+                
+                const targetSize = tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024');
+                formData.append('size', targetSize);
+                
+                if (tModelId === 'gpt-image-2') {
+                    formData.append('quality', tQuality || 'auto');
+                }
+                formData.append('safety_level', 'low');
+                formData.append('moderation', 'low');
+
+                for (const img of tRefs) {
+                    let blob: Blob;
+                    if (img.data.startsWith('http')) {
+                        const imgRes = await fetch(img.data);
+                        blob = await imgRes.blob();
+                    } else {
+                        const b64 = img.data.includes(',') ? img.data.split(',')[1] : img.data;
+                        const byteCharacters = atob(b64);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        blob = new Blob([new Uint8Array(byteNumbers)], { type: (img.mimeType || 'image/png') });
+                    }
+                    formData.append('image', blob, 'image.png');
+                }
+
+                const res = await fetch(`${config.baseUrl}/v1/images/edits`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
+                    body: formData
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(`GPT-2 Edit Error: ${data.error?.message || JSON.stringify(data.error) || JSON.stringify(data)}`);
+                }
+                let b64 = data.data?.[0]?.b64_json;
+                url = b64 ? (b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`) : (findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '');
             } else if (tModelId === 'grok-imagine-image' || tModelId === 'doubao-seedream-5-0-260128' || tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2') {
                 const bodyPayload: any = {
                     model: tModelId,
