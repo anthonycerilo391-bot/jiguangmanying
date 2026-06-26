@@ -270,8 +270,8 @@ const VIDEO_MODELS = [
     ]
   },
   {
-    id: 'grok-imagine-video',
-    name: 'Grok Imagine Video',
+    id: 'grok-imagine-video-1.5-preview',
+    name: 'Grok Imagine Video 1.5-preview',
     desc: '标清视频',
     maxImages: 1,
     supportedAspectRatios: ['9:16', '16:9', '2:3', '3:2', '1:1'],
@@ -1266,7 +1266,7 @@ const PRICE_DATA = [
       { m: 'veo3.1-components-4k', p: '0.700元/条' },
       { m: 'veo3.1-pro-4k', p: '2.450元/条' },
       { m: 'Grok Video 3', p: '0.280元/6秒，0.280元/10秒' },
-      { m: 'Grok Imagine Video', p: '0.047元/秒' },
+      { m: 'Grok Imagine Video 1.5-preview', p: '0.047元/秒' },
       { m: 'Kling Control Std (动作转移)', p: '0.595元/秒' },
       { m: 'Kling Control Pro (动作转移)', p: '0.952元/秒' },
       { m: 'KLING Avatar Std (数字人)', p: '1.190元/秒' },
@@ -2927,7 +2927,7 @@ const App = () => {
       placeholders.push({
         id: generateUUID(), url: '', type: 'video', prompt: tPrompt || '(无提示词)',
         modelId: tModelId, modelName: modelDef!.name,
-        durationText: tModelId === 'grok-imagine-video' ? `${tGrokImagineDuration}s` : `${(modelDef!.options[tOptIdx] as any).s === 'AUTO' ? 'Auto' : (modelDef!.options[tOptIdx] as any).s + 's'}`,
+        durationText: tModelId === 'grok-imagine-video-1.5-preview' ? `${tGrokImagineDuration}s` : `${(modelDef!.options[tOptIdx] as any).s === 'AUTO' ? 'Auto' : (modelDef!.options[tOptIdx] as any).s + 's'}`,
         genTimeLabel: '生成中...',
         timestamp: startTime, status: 'loading',
         config: { modelId: tModelId, videoRatio: tRatio, videoOptionIdx: tOptIdx, prompt: tPrompt, referenceImages: [...tRefs], referenceVideos: [...tRefVideos], referenceAudios: [...tRefAudios], type: 'video', isKlingMode: isKlingModel, isSyncAudio: tSyncAudio, klingOrientation: tKlingOrientation, klingKeepSound: tKlingKeepSound, klingDubVol: tKlingDubVol, klingSrcVol: tKlingSrcVol, happyHorseWatermark: tHappyHorseWatermark, happyHorseAudio: tHappyHorseAudio, happyHorseDuration: tHappyHorseDuration, grokImagineDuration: tGrokImagineDuration }
@@ -3122,7 +3122,7 @@ const App = () => {
 
                     if (isGrokModel) {
                         payload.size = '720P';
-                        if (apiModelId === 'grok-imagine-video') {
+                        if (apiModelId === 'grok-imagine-video-1.5-preview') {
                             payload.duration = tGrokImagineDuration;
                         }
                     }
@@ -4485,7 +4485,7 @@ const App = () => {
                                 
                                 <div className={`space-y-1`}>
                                 <label className={labelClass}>
-                                    {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'happyhorse-1.0' || selectedVideoModel === 'grok-imagine-video') ? '质量 QUALITY' : '时长/质量 DURATION'}
+                                    {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'happyhorse-1.0' || selectedVideoModel === 'grok-imagine-video-1.5-preview') ? '质量 QUALITY' : '时长/质量 DURATION'}
                                 </label>
                                 <select value={videoOptionIdx} onChange={(e) => setVideoOptionIdx(parseInt(e.target.value))} className={selectClass}>
                                     {selectedVideoModel === 'kling-avatar-image2video' ? (
@@ -4496,7 +4496,7 @@ const App = () => {
                                     ) : (
                                         currentVideoModel?.options.map((opt, idx) => (
                                             <option key={idx} value={idx} disabled={(isSyncAudio && opt.q === '标准模式') || (opt as any).disabled}>
-                                                {selectedVideoModel === 'happyhorse-1.0' || selectedVideoModel === 'grok-imagine-video' ? opt.q : ((opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S') + ` (${opt.q})`}
+                                                {selectedVideoModel === 'happyhorse-1.0' || selectedVideoModel === 'grok-imagine-video-1.5-preview' ? opt.q : ((opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S') + ` (${opt.q})`}
                                             </option>
                                         ))
                                     )}
@@ -4556,7 +4556,7 @@ const App = () => {
                         )}
 
                         {/* Grok Imagine Video Slider */}
-                        {isVideoMode && selectedVideoModel === 'grok-imagine-video' && (
+                        {isVideoMode && selectedVideoModel === 'grok-imagine-video-1.5-preview' && (
                              <div className="space-y-1 mb-2">
                                  <label className={labelClass}>视频时长 DURATION (1-15S)</label>
                                  <div className="flex items-center gap-2.5 bg-white border border-black p-1.5 brutalist-shadow-sm h-10">
