@@ -3139,7 +3139,11 @@ const App = () => {
                         payload.sync_audio = true;
                     }
 
-                    response = await fetch(`${config.baseUrl}/v1/video/create`, {
+                    const endpoint = apiModelId === 'grok-imagine-video-1.5-preview' 
+                        ? `${config.baseUrl}/v1/videos/generations` 
+                        : `${config.baseUrl}/v1/video/create`;
+
+                    response = await fetch(endpoint, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Accept': 'application/json' },
                         body: JSON.stringify(payload)
@@ -3179,6 +3183,9 @@ const App = () => {
                         errorMsg = data.error.message;
                     } else if (data.message) {
                         errorMsg = data.message;
+                    }
+                    if (errorMsg.includes("在分组") && errorMsg.includes("不允许访问该端点")) {
+                        errorMsg = `${errorMsg} (💡 提示：该模型在您当前的API令牌分组下不可用。请在API站点控制台“编辑令牌”中，为该令牌勾选并添加“限时体验”或“限时特价”等对应分组，保存后即可正常使用！)`;
                     }
                     throw new Error(errorMsg);
                 }
