@@ -14,7 +14,7 @@ export const APP_CONFIG = {
   PRICE_RATIO: 0.6,
 
   // 4. 微信客服（WECHAT_SERVICE）：默认值="wx123456789"，代理替换为自己的微信客服号
-  WECHAT_SERVICE: "piananyiyu789",
+  WECHAT_SERVICE: "123465",
 
   // 5. 客服查询更多详情链接（SUPPORT_DETAIL_URL）：默认值="https://www.xxxx.cn/support"，代理替换为专属链接
   SUPPORT_DETAIL_URL: "https://ai.feishu.cn/wiki/O6Q9wrxxci898Wkj6ndcFnlknJd?from=from_copylink",
