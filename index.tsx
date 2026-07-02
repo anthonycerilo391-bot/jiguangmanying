@@ -214,6 +214,16 @@ const MODELS: ModelDefinition[] = [
     supportedResolutions: ['1K', '2K', '4K']
   },
   {
+    id: 'gpt-image-2-c',
+    name: 'GPT IMAGE 2-C',
+    cost: 'GPT-2-C',
+    features: ['detail', 'high-quality'],
+    maxImages: 4,
+    supportedAspectRatios: GPT2_RATIOS,
+    supportedResolutions: ['1K'],
+    supportedQualities: ['auto', 'low', 'medium', 'high']
+  },
+  {
     id: 'grok-imagine-image',
     name: 'Grok Imagine Image',
     cost: 'Grok',
@@ -1739,7 +1749,7 @@ const App = () => {
         if (!model.supportedAspectRatios.includes(aspectRatio)) setAspectRatio(model.supportedAspectRatios[0]);
 
         let allowedResolutions = model.supportedResolutions;
-        if (model.id === 'gpt-image-2' || model.id === 'gpt-image-2-all') {
+        if (model.id === 'gpt-image-2' || model.id === 'gpt-image-2-all' || model.id === 'gpt-image-2-c') {
              const sizesForRatio = GPT2_SIZES[aspectRatio] || {};
              allowedResolutions = allowedResolutions.filter(res => sizesForRatio[res]);
         }
@@ -3399,6 +3409,7 @@ const App = () => {
       const generateOne = async (pId: string) => {
         const start = Date.now();
         let url = '';
+        let errorMsg = '';
         try {
             if (tModelId.startsWith('gemini')) {
                 const parts: any[] = [{ text: tPrompt }];
@@ -3472,7 +3483,7 @@ const App = () => {
                 }
                 let b64 = data.data?.[0]?.b64_json;
                 url = b64 ? (b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`) : (findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '');
-            } else if ((tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-all') && tRefs && tRefs.length > 0) {
+            } else if ((tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2-c') && tRefs && tRefs.length > 0) {
                 // GPT-2 Image Edit supports multiple reference images via FormData
                 const formData = new FormData();
                 formData.append('model', tModelId);
@@ -3482,7 +3493,7 @@ const App = () => {
                 const targetSize = tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024');
                 formData.append('size', targetSize);
                 
-                if (tModelId === 'gpt-image-2') {
+                if (tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-c') {
                     formData.append('quality', tQuality || 'auto');
                 }
                 formData.append('safety_level', 'low');
@@ -3514,12 +3525,12 @@ const App = () => {
                 }
                 let b64 = data.data?.[0]?.b64_json;
                 url = b64 ? (b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`) : (findImageUrlInObject(data.data?.[0]?.url) || findImageUrlInObject(data) || '');
-            } else if (tModelId === 'grok-imagine-image' || tModelId === 'doubao-seedream-5-0-260128' || tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2') {
+            } else if (tModelId === 'grok-imagine-image' || tModelId === 'doubao-seedream-5-0-260128' || tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-c') {
                 const bodyPayload: any = {
                     model: tModelId,
                     prompt: tPrompt,
                     n: 1,
-                    size: (tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2')
+                    size: (tModelId === 'gpt-image-2-all' || tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-c')
                           ? (tSize === 'AUTO' ? (GPT2_SIZES[tRatio]?.['1K'] || '1024x1024') : (GPT2_SIZES[tRatio]?.[tSize] || GPT2_SIZES[tRatio]?.['2K'] || GPT2_SIZES[tRatio]?.['1K'] || '1024x1024'))
                           : (tSize === 'AUTO' ? undefined : tSize),
                     response_format: 'url',
@@ -3527,7 +3538,7 @@ const App = () => {
                     safety_setting: 'low',
                     moderation: 'low'
                 };
-                if (tModelId === 'gpt-image-2') {
+                if (tModelId === 'gpt-image-2' || tModelId === 'gpt-image-2-c') {
                     bodyPayload.quality = tQuality || 'auto';
                 }
                 if (tModelId === 'doubao-seedream-5-0-260128') {
@@ -3579,8 +3590,12 @@ const App = () => {
                 }
                 url = findImageUrlInObject(data) || findImageUrlInObject(data.choices?.[0]?.message?.content) || '';
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Single generation failed", e);
+            errorMsg = e.message || String(e);
+            if (errorMsg.includes("violate our content policies") || errorMsg.includes("content safety") || errorMsg.includes("policy")) {
+                errorMsg = `内容安全拦截：提示词可能触及了内容安全政策，请尝试修改或简化提示词后重新生成。(${errorMsg})`;
+            }
         }
 
         const diff = Math.round((Date.now() - start) / 1000);
@@ -3593,7 +3608,9 @@ const App = () => {
             setGeneratedAssets(prev => prev.map(a => a.id === pId ? updated : a));
             saveAssetToDB(updated);
         } else {
-            setGeneratedAssets(prev => prev.map(a => a.id === pId ? { ...a, status: 'failed', genTimeLabel: '失败' } : a));
+            const finalError = errorMsg || '生成失败';
+            setGeneratedAssets(prev => prev.map(a => a.id === pId ? { ...a, status: 'failed', genTimeLabel: finalError } : a));
+            setError(finalError);
         }
       };
       
@@ -4434,7 +4451,7 @@ const App = () => {
                             <select value={imageSize} onChange={(e) => setImageSize(e.target.value)} className={selectClass}>
                                 {(() => {
                                     const resolutions = currentImageModel?.supportedResolutions || [];
-                                    if (currentImageModel?.id === 'gpt-image-2' || currentImageModel?.id === 'gpt-image-2-all') {
+                                    if (currentImageModel?.id === 'gpt-image-2' || currentImageModel?.id === 'gpt-image-2-all' || currentImageModel?.id === 'gpt-image-2-c') {
                                         const sizesForRatio = GPT2_SIZES[aspectRatio] || {};
                                         return resolutions.map((res, idx) => (
                                             <option key={idx} value={res} disabled={!sizesForRatio[res]}>
