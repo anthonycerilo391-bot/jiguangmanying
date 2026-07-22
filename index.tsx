@@ -280,6 +280,18 @@ const VIDEO_MODELS = [
     ]
   },
   {
+    id: 'happyhorse-1.1',
+    name: 'Happy Horse-1.1',
+    desc: '多模态视频',
+    maxVideos: 1,
+    maxImages: 9,
+    supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    options: [
+      {s: 'AUTO', q: '720P'},
+      {s: 'AUTO', q: '1080P'}
+    ]
+  },
+  {
     id: 'grok-imagine-video-1.5-preview',
     name: 'Grok Imagine Video 1.5-preview',
     desc: '标清视频',
@@ -2092,7 +2104,7 @@ const App = () => {
   useEffect(() => {
     let limit = 4;
     if (isVideoMode) {
-        if (selectedVideoModel === 'happyhorse-1.0') limit = 9;
+        if (selectedVideoModel.startsWith('happyhorse')) limit = 9;
         else if (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') limit = 1;
         else if (selectedVideoModel.includes('components')) limit = 3;
         else if (selectedVideoModel.startsWith('veo')) limit = 2;
@@ -2117,7 +2129,7 @@ const App = () => {
     if (!isVideoMode) {
         max = currentModel?.maxReferenceImages ?? currentModel?.maxImages ?? 4;
     } else {
-        if (selectedVideoModel === 'happyhorse-1.0') {
+        if (selectedVideoModel.startsWith('happyhorse')) {
             max = 9;
         } else if (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') {
             max = 1;
@@ -2956,19 +2968,18 @@ const App = () => {
                 const isHappyHorseModel = apiModelId.startsWith('happyhorse');
 
                 if (isHappyHorseModel) {
-                    let actualModelId = 'happyhorse-1.0';
-                    if (apiModelId === 'happyhorse-1.0') {
+                    let actualModelId = apiModelId;
+                    if (apiModelId === 'happyhorse-1.0' || apiModelId === 'happyhorse-1.1') {
+                        const version = apiModelId;
                         if (tRefVideos && tRefVideos.length > 0) {
-                            actualModelId = 'happyhorse-1.0-video-edit';
+                            actualModelId = `${version}-video-edit`;
                         } else if (tRefs && tRefs.length >= 2) {
-                            actualModelId = 'happyhorse-1.0-r2v';
+                            actualModelId = `${version}-r2v`;
                         } else if (tRefs && tRefs.length === 1) {
-                            actualModelId = 'happyhorse-1.0-i2v';
+                            actualModelId = `${version}-i2v`;
                         } else {
-                            actualModelId = 'happyhorse-1.0-t2v';
+                            actualModelId = `${version}-t2v`;
                         }
-                    } else {
-                        actualModelId = apiModelId;
                     }
                     const payload: any = {
                         model: actualModelId,
@@ -2983,19 +2994,19 @@ const App = () => {
                         }
                     };
 
-                    if (actualModelId === 'happyhorse-1.0-video-edit') {
+                    if (actualModelId.endsWith('-video-edit')) {
                         if (tRefVideos && tRefVideos.length > 0) {
                             payload.input.video_url = tRefVideos[0].data.startsWith('http') ? tRefVideos[0].data : `data:${tRefVideos[0].mimeType};base64,${tRefVideos[0].data}`;
                         }
                         if (tRefs && tRefs.length > 0) {
                             payload.input.img_urls = tRefs.map((img: any) => img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`);
                         }
-                    } else if (actualModelId === 'happyhorse-1.0-r2v') {
+                    } else if (actualModelId.endsWith('-r2v')) {
                         payload.input.media = tRefs.map((img: any) => ({
                             type: 'reference_image',
                             url: img.data.startsWith('http') ? img.data : `data:${img.mimeType};base64,${img.data}`
                         }));
-                    } else if (actualModelId === 'happyhorse-1.0-i2v') {
+                    } else if (actualModelId.endsWith('-i2v')) {
                         if (tRefs && tRefs.length > 0) {
                             payload.input.img_url = tRefs[0].data.startsWith('http') ? tRefs[0].data : `data:${tRefs[0].mimeType};base64,${tRefs[0].data}`;
                         }
@@ -4227,7 +4238,7 @@ const App = () => {
                                             </button>
                                             </div>
                                         ))}
-                                        {((!isVideoMode ? referenceImages.length < (MODELS.find(m => m.id === selectedModel)?.maxReferenceImages ?? MODELS.find(m => m.id === selectedModel)?.maxImages ?? 4) : referenceImages.length < (selectedVideoModel === 'happyhorse-1.0' && referenceVideos.length > 0 ? 5 : (currentVideoModel?.maxImages ?? (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control' ? 1 : (selectedVideoModel.includes('components') ? 3 : (selectedVideoModel.startsWith('veo')) ? 2 : 1)))))) && (
+                                        {((!isVideoMode ? referenceImages.length < (MODELS.find(m => m.id === selectedModel)?.maxReferenceImages ?? MODELS.find(m => m.id === selectedModel)?.maxImages ?? 4) : referenceImages.length < (selectedVideoModel.startsWith('happyhorse') && referenceVideos.length > 0 ? 5 : (currentVideoModel?.maxImages ?? (selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control' ? 1 : (selectedVideoModel.includes('components') ? 3 : (selectedVideoModel.startsWith('veo')) ? 2 : 1)))))) && (
                                             <label className="w-24 h-24 border border-black flex items-center justify-center cursor-pointer bg-white brutalist-shadow-sm">
                                             <Plus className="w-6 h-6" /><input type="file" multiple={!isVideoMode || selectedVideoModel.startsWith('veo')} accept=".jpg, .jpeg, .png" className="hidden" onChange={handleImageUpload} />
                                             </label>
@@ -4281,7 +4292,7 @@ const App = () => {
                                             <input type="file" accept="video/mp4,video/quicktime" className="hidden" onChange={handleVideoUpload} />
                                         </label>
                                     )}
-                                    {isVideoMode && selectedVideoModel === 'happyhorse-1.0' && (
+                                    {isVideoMode && selectedVideoModel.startsWith('happyhorse') && (
                                         <div className="mt-2 space-y-0.5">
                                             <div className="text-xs font-normal uppercase text-black leading-tight">源视频≤15 秒：按原视频时长生成；</div>
                                             <div className="text-xs font-normal uppercase text-black leading-tight">源视频＞15 秒：截取前 15 秒，固定生成 15 秒视频。</div>
@@ -4499,9 +4510,9 @@ const App = () => {
                             <div className="grid grid-cols-2 gap-2.5">
                                 {/* Hide Aspect Ratio for Kling Avatar or Motion Control */}
                                 {!(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'kling-motion-control') && (
-                                    <div className={`space-y-1 ${selectedVideoModel === 'happyhorse-1.0' && referenceVideos.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
-                                        <label className={labelClass}>比例 ASPECT {selectedVideoModel === 'happyhorse-1.0' && referenceVideos.length > 0 && <span className="text-[10px] lowercase">(跟随原视频)</span>}</label>
-                                        <select value={videoRatio} onChange={(e) => setVideoRatio(e.target.value)} disabled={selectedVideoModel === 'happyhorse-1.0' && referenceVideos.length > 0} className={selectClass}>
+                                    <div className={`space-y-1 ${selectedVideoModel.startsWith('happyhorse') && referenceVideos.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+                                        <label className={labelClass}>比例 ASPECT {selectedVideoModel.startsWith('happyhorse') && referenceVideos.length > 0 && <span className="text-[10px] lowercase">(跟随原视频)</span>}</label>
+                                        <select value={videoRatio} onChange={(e) => setVideoRatio(e.target.value)} disabled={selectedVideoModel.startsWith('happyhorse') && referenceVideos.length > 0} className={selectClass}>
                                             {(currentVideoModel)?.supportedAspectRatios.map(r => <option key={r} value={r}>{ASPECT_RATIO_LABELS[r] || r}</option>)}
                                         </select>
                                     </div>
@@ -4509,7 +4520,7 @@ const App = () => {
                                 
                                 <div className={`space-y-1`}>
                                 <label className={labelClass}>
-                                    {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel === 'happyhorse-1.0' || selectedVideoModel === 'grok-imagine-video-1.5-preview') ? '质量 QUALITY' : '时长/质量 DURATION'}
+                                    {(selectedVideoModel === 'kling-avatar-image2video' || selectedVideoModel.startsWith('happyhorse') || selectedVideoModel === 'grok-imagine-video-1.5-preview') ? '质量 QUALITY' : '时长/质量 DURATION'}
                                 </label>
                                 <select value={videoOptionIdx} onChange={(e) => setVideoOptionIdx(parseInt(e.target.value))} className={selectClass}>
                                     {selectedVideoModel === 'kling-avatar-image2video' ? (
@@ -4520,7 +4531,7 @@ const App = () => {
                                     ) : (
                                         currentVideoModel?.options.map((opt, idx) => (
                                             <option key={idx} value={idx} disabled={(isSyncAudio && opt.q === '标准模式') || (opt as any).disabled}>
-                                                {selectedVideoModel === 'happyhorse-1.0' || selectedVideoModel === 'grok-imagine-video-1.5-preview' ? opt.q : ((opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S') + ` (${opt.q})`}
+                                                {selectedVideoModel.startsWith('happyhorse') || selectedVideoModel === 'grok-imagine-video-1.5-preview' ? opt.q : ((opt as any).s === 'AUTO' ? '自动时长' : (opt as any).s + 'S') + ` (${opt.q})`}
                                             </option>
                                         ))
                                     )}
@@ -4536,7 +4547,7 @@ const App = () => {
                 {!(isVideoMode && (selectedVideoModel === 'kling-motion-control' || selectedVideoModel === 'kling-avatar-image2video')) && !isAudioMode && (
                     <div className="space-y-1">
                         {/* Happy Horse Slider */}
-                        {isVideoMode && selectedVideoModel === 'happyhorse-1.0' && (
+                        {isVideoMode && selectedVideoModel.startsWith('happyhorse') && (
                              <>
                                  <div className={`space-y-1 mb-2 ${referenceVideos.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
                                     <label className={labelClass}>视频时长 DURATION (3-15S) {referenceVideos.length > 0 && <span className="text-[10px] lowercase">(跟随原视频)</span>}</label>
