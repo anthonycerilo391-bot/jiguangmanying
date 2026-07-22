@@ -220,7 +220,7 @@ const MODELS: ModelDefinition[] = [
     features: ['detail', 'high-quality'],
     maxImages: 4,
     supportedAspectRatios: GPT2_RATIOS,
-    supportedResolutions: ['1K'],
+    supportedResolutions: ['1K', '2K', '4K'],
     supportedQualities: ['auto', 'low', 'medium', 'high']
   },
   {
